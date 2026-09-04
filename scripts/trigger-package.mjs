@@ -86,7 +86,19 @@ async function main() {
 
   const result = spawnSync(
     "gh",
-    ["workflow", "run", workflow, "--repo", repository, "--ref", branch, "--field", `version=${version}`],
+    [
+      "workflow",
+      "run",
+      workflow,
+      "--repo",
+      repository,
+      "--ref",
+      branch,
+      "--field",
+      `version=${version}`,
+      "--field",
+      `ref=${branch}`,
+    ],
     { stdio: "inherit" },
   )
   if (result.error) throw result.error
