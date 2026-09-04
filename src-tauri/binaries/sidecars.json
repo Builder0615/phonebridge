@@ -1,0 +1,245 @@
+{
+  "adb": {
+    "source": "system",
+    "path": "system: Android SDK Platform-Tools/adb",
+    "version": "Android Debug Bridge version 1.0.41"
+  },
+  "scrcpy": {
+    "source": "system",
+    "path": "system: scrcpy",
+    "version": "unknown"
+  },
+  "scrcpyServer": {
+    "source": "system",
+    "path": "system: scrcpy-server",
+    "version": "scrcpy-server 4.0 (must match host protocol)",
+    "sha256": "84924bd564a1eb6089c872c7521f968058977f91f5ff02514a8c74aff3210f3a"
+  },
+  "uxplay": {
+    "source": "github:FDH2/UxPlay",
+    "sourceUrl": "https://github.com/FDH2/UxPlay",
+    "release": "v1.73.6",
+    "commit": "21eef8df25d91e12635c36d8176ad192725baca2",
+    "archiveSha256": "3a1a754bc7ed4b0f72b6237aa4d769238b9c20a71b651bc3fe9ac679e2a67f18",
+    "version": "UxPlay version 1.73.6; for help, use option \"-h\"",
+    "path": "src-tauri/binaries/uxplay",
+    "sha256": "5243961cc145eeda4f20d61528727f1d23c8c75118ae158b1f99c8d56bb11487",
+    "license": "GPLv3",
+    "packaging": "独立进程；macOS 动态库改写为 @rpath，Windows DLL/插件随包分发，不修改 UxPlay 源码",
+    "distributionConclusion": "随应用分发时必须同时提供 GPLv3 许可证、对应源代码获取信息，并在发布前完成 copyleft 义务审查。"
+  },
+  "gstreamer": {
+    "source": "Homebrew formula gstreamer",
+    "sourceUrl": "https://github.com/Homebrew/homebrew-core/blob/HEAD/Formula/g/gstreamer.rb",
+    "version": "1.28.6",
+    "path": "src-tauri/binaries/gstreamer",
+    "license": "LGPL-2.0-or-later; LGPL-2.1-or-later; MIT (GStreamer and selected plugins)",
+    "plugins": [
+      "libgstapp.dylib",
+      "libgstcoreelements.dylib",
+      "libgstlibav.dylib",
+      "libgstplayback.dylib",
+      "libgstautodetect.dylib",
+      "libgstvideoconvertscale.dylib",
+      "libgstvideoparsersbad.dylib",
+      "libgstrtp.dylib",
+      "libgstudp.dylib"
+    ],
+    "files": [
+      {
+        "path": "lib/libavcodec.63.1.101.dylib",
+        "sha256": "67095c7ad2735aa1b802bd4a8de5c93fd63222577cfe459e7b32e115b4087aac"
+      },
+      {
+        "path": "lib/libavfilter.12.1.101.dylib",
+        "sha256": "95fae111b47ee9586cf3e2a61d05200f190d2f256308c69647837db75c22f223"
+      },
+      {
+        "path": "lib/libavformat.63.1.101.dylib",
+        "sha256": "7ecc9c7c9037b4e34b679ab1e9049ba82e9d317c358743ecee0bb0c8ce4199ab"
+      },
+      {
+        "path": "lib/libavutil.61.1.101.dylib",
+        "sha256": "fc574af2bfc9391863c1eb4179f1373b478bfb5c649797037aa3712a510bd25c"
+      },
+      {
+        "path": "lib/libcrypto.3.dylib",
+        "sha256": "c450fc05af0d46859c4e6c5ac6edb72712874d45900e342d44be087b3d1d8d5e"
+      },
+      {
+        "path": "lib/libdav1d.7.dylib",
+        "sha256": "7cf19173ac21e247f5996e355e72f922aef0712f122de74afafb432b33b08cbd"
+      },
+      {
+        "path": "lib/libgio-2.0.0.dylib",
+        "sha256": "a1652152c54c193cb2f86b676716c2772842a9b7671c8acb4eaad0eafdb34b5f"
+      },
+      {
+        "path": "lib/libglib-2.0.0.dylib",
+        "sha256": "5988967cf92ad693cc008f180837df727490fa9c5dc8155f1693af655b1739dc"
+      },
+      {
+        "path": "lib/libgmodule-2.0.0.dylib",
+        "sha256": "c0e52bde48ed3463a4ed721dcf554abdb16c398b648b61f9b0bfd025b083bc3a"
+      },
+      {
+        "path": "lib/libgobject-2.0.0.dylib",
+        "sha256": "1aeb8b27f445a28a24e46893c94bf55691965edfd8847416de7d924a69e690c5"
+      },
+      {
+        "path": "lib/libgstapp-1.0.0.dylib",
+        "sha256": "37f5bb48d16ead3e07f18b69f43fde869be793a9a87f25dadc99bfeca09a06c2"
+      },
+      {
+        "path": "lib/libgstaudio-1.0.0.dylib",
+        "sha256": "90b6c9e6ec5c97565c3a0f7d23baa3cb10a5a68cfc2a8fa05d2fa204d0559239"
+      },
+      {
+        "path": "lib/libgstbase-1.0.0.dylib",
+        "sha256": "3a23608490d876dbaa9b3f163fbc918fe48404f4c8872e17bf59620c15a94129"
+      },
+      {
+        "path": "lib/libgstcodecparsers-1.0.0.dylib",
+        "sha256": "1077aa31fe4cb1e9410f3c1a15b62d0ea05f482819aec96486951624bc97fc31"
+      },
+      {
+        "path": "lib/libgstnet-1.0.0.dylib",
+        "sha256": "3012a2d9aa54c6418f1acef5570a462e32212a59ff94f7af0fe6b12526c938a8"
+      },
+      {
+        "path": "lib/libgstpbutils-1.0.0.dylib",
+        "sha256": "48e0e8f315aa16c9bc2b819d0495fe8035326da424cc43447411e844851d9486"
+      },
+      {
+        "path": "lib/libgstreamer-1.0.0.dylib",
+        "sha256": "25bbcf6a6e98ef3be2b6322f2d2212d6cca256ad604ba2abfbb30084a6b9a31b"
+      },
+      {
+        "path": "lib/libgstrtp-1.0.0.dylib",
+        "sha256": "7ac6ebe9a43e5311b66b71c519bce8731745a3b877a34f2ad943ac62ed0aa458"
+      },
+      {
+        "path": "lib/libgstsdp-1.0.0.dylib",
+        "sha256": "fba1e48c7e76e356193e228599da08c474227347259819ab9cdf857d2608b051"
+      },
+      {
+        "path": "lib/libgsttag-1.0.0.dylib",
+        "sha256": "72ad659e500e315db248ec2d08d77bb2c250462f85b45b1db175744712357ba4"
+      },
+      {
+        "path": "lib/libgstvideo-1.0.0.dylib",
+        "sha256": "2e4a7ba081232b1f77564fecef2702ca5c1e87a23dafa16f6ea803e1efb83104"
+      },
+      {
+        "path": "lib/libintl.8.dylib",
+        "sha256": "7771614cfd1c65db4cc23895250708474d4f4baa182a96f74eb665f1c18426e8"
+      },
+      {
+        "path": "lib/liblzma.5.dylib",
+        "sha256": "4ec6c3227aae7a9b305d2869ad4b00c6c96e687b4c2c4e55b9588460fd4c580e"
+      },
+      {
+        "path": "lib/libmp3lame.0.dylib",
+        "sha256": "df24e6a60555927208ce7d61ba8025889f0c7b9f0f2fc6560c939f8486d854a2"
+      },
+      {
+        "path": "lib/libmpg123.0.dylib",
+        "sha256": "6bee4bd7ca6a4035ffb197c7abb1a739db6035329132a5a41dc26a5dba69198c"
+      },
+      {
+        "path": "lib/libopus.0.dylib",
+        "sha256": "7187e23b82dfe7baf4e7d5d1dfe04eda1a81e6bda2df6c5caa57ef4685a66de2"
+      },
+      {
+        "path": "lib/liborc-0.4.0.dylib",
+        "sha256": "933bafcc2266ac4860bfd8485796a3f2601f7fcfc6a93ab75c60d053f26d35f5"
+      },
+      {
+        "path": "lib/libpcre2-8.0.dylib",
+        "sha256": "bcd826ea0c76f654079862c9489e0a5d9762153aa11fc7f164994c1b9f44dab8"
+      },
+      {
+        "path": "lib/libssl.3.dylib",
+        "sha256": "4a1e5077265a9d1bcda34dda5618c184847b6dcef23c4168d822c91e863a7e92"
+      },
+      {
+        "path": "lib/libSvtAv1Enc.4.2.0.dylib",
+        "sha256": "a795e1a449f9f6ca540c299efa9e02dff0a00f52e33d188e4a78f9fd822a6fb0"
+      },
+      {
+        "path": "lib/libswresample.7.1.101.dylib",
+        "sha256": "ad46c32de6f5ebb786985373759c15205f1043331c19cd91122816d0750a4a7e"
+      },
+      {
+        "path": "lib/libswscale.10.1.101.dylib",
+        "sha256": "6c90a5d6e1b7668cf83ca18b4675dd31afbc0d7a0b68070b847258b2d9b6a111"
+      },
+      {
+        "path": "lib/libvmaf.3.dylib",
+        "sha256": "766dd1b446b566ad42f25c5d81031f3f6699b5fb679fb6c74e22cfaf6e7d1507"
+      },
+      {
+        "path": "lib/libvpx.12.dylib",
+        "sha256": "58ff3de2af5c0bbc073af6d5da6b56d2cba428cffbca13ff339824598cfd1a45"
+      },
+      {
+        "path": "lib/libx264.165.dylib",
+        "sha256": "203ffdbeaedacd99c6eda091f0bd8c2d1d8c99dc18b36e12f5ffb97d37beb432"
+      },
+      {
+        "path": "lib/libx265.217.dylib",
+        "sha256": "f3b010a443d7e57e0c4380a78f7789e1426327094561990cc94d6023fa7fcf3b"
+      },
+      {
+        "path": "libexec/gstreamer-1.0/gst-plugin-scanner",
+        "sha256": "293b55fa9f386f15ae21399bb17c722c565ebfa1b393c48fd23457e75bb666fd"
+      },
+      {
+        "path": "plugins/libgstapp.dylib",
+        "sha256": "a73e65814d8c8ed6fec26b0c83b9992ebafaa33cd51d2df6f25cb8ebc3cdeeff"
+      },
+      {
+        "path": "plugins/libgstautodetect.dylib",
+        "sha256": "36fca04a1c374da75e957bba96c11fd5f61250505010c89fd7dc9773baf7fa02"
+      },
+      {
+        "path": "plugins/libgstcoreelements.dylib",
+        "sha256": "321cec7c24ac1835ee33b48d94d8d746eb4922655f58e07a7e65a413c554cc1f"
+      },
+      {
+        "path": "plugins/libgstlibav.dylib",
+        "sha256": "e0780561551dac4aa23b1b98c15360d5f6756015122028113db7c431113cd157"
+      },
+      {
+        "path": "plugins/libgstplayback.dylib",
+        "sha256": "03c37d5127086cbde51b2af89b09f91b5867602e6631808f184c666ca696d3e7"
+      },
+      {
+        "path": "plugins/libgstrtp.dylib",
+        "sha256": "97f06ecc49570563ee0e32ac5d228e958631d7bc8c6d0f5d76af8b768de14898"
+      },
+      {
+        "path": "plugins/libgstudp.dylib",
+        "sha256": "6c297f82dc80b21f83e2ea00f444e8b4c775e35506a617ac871174447e5996a7"
+      },
+      {
+        "path": "plugins/libgstvideoconvertscale.dylib",
+        "sha256": "6eee9f7dd607073174bb56192d3ee3fbd6c9f1d635c150afb84177e2544d9d54"
+      },
+      {
+        "path": "plugins/libgstvideoparsersbad.dylib",
+        "sha256": "2bef398f3be5baf0b4280164003eff8f4c716153b74e35770af2505c460f4cc8"
+      }
+    ],
+    "distributionConclusion": "GStreamer is bundled as a separate runtime for the GPLv3 UxPlay process. Preserve the corresponding notices and source information in release materials."
+  },
+  "ffmpeg": {
+    "source": "github:eugeneware/ffmpeg-static",
+    "sourceUrl": "https://github.com/eugeneware/ffmpeg-static",
+    "release": "b6.1.1",
+    "asset": "ffmpeg-darwin-arm64",
+    "version": "ffmpeg version 6.0 Copyright (c) 2000-2023 the FFmpeg developers",
+    "sha256": "a90e3db6a3fd35f6074b013f948b1aa45b31c6375489d39e572bea3f18336584",
+    "license": "GPL-3.0-or-later"
+  }
+}

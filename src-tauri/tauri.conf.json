@@ -1,0 +1,59 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "快投屏",
+  "version": "0.1.0",
+  "identifier": "com.phonebridge.desktop",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "快投屏",
+        "width": 520,
+        "height": 560,
+        "minWidth": 440,
+        "minHeight": 420,
+        "resizable": true,
+        "center": true,
+        "label": "main"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "macOS": {
+      "signingIdentity": "-",
+      "entitlements": "entitlements.plist",
+      "infoPlist": "Info.plist"
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "DeveloperTool",
+    "shortDescription": "快投屏 — iPhone AirPlay 与 Android scrcpy 画面控制",
+    "longDescription": "快投屏：在 Windows 10/11 与 macOS 13+ 上接收 iPhone 的 AirPlay 镜像并通过 Bluetooth LE HID 控制，同时通过 Android ADB/scrcpy-server 接收 Android 画面并发送控制输入。不实现 Apple 私有认证链路。\n运行时依赖（adb/scrcpy-server/ffmpeg/UxPlay）随应用内置（sidecar/resources）；UxPlay 以独立 GPLv3 进程分发。",
+    "resources": [
+      "binaries/scrcpy-server",
+      "binaries/VERSION",
+      "binaries/licenses",
+      "binaries/ios-usb"
+    ],
+    "externalBin": [
+      "binaries/adb",
+      "binaries/ffmpeg",
+      "binaries/uxplay"
+    ]
+  }
+}

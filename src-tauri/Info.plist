@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>快投屏需要蓝牙来向已连接的 iPhone 提供键盘和鼠标输入。</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>快投屏需要蓝牙来提供 iPhone 可连接的 HID 输入服务。</string>
+</dict>
+</plist>

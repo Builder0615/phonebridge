@@ -1,0 +1,10 @@
+{
+  "bundle": {
+    "resources": [
+      "binaries/scrcpy-server",
+      "binaries/VERSION",
+      "binaries/gstreamer",
+      "binaries/licenses"
+    ]
+  }
+}

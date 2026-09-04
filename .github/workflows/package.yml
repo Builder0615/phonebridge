@@ -1,0 +1,226 @@
+name: Package desktop installers
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "发布版本号，例如 1.2.3"
+        required: true
+        type: string
+      ref:
+        description: "要打包的分支或 tag"
+        required: false
+        default: main
+        type: string
+
+concurrency:
+  group: package-${{ inputs.version }}-${{ inputs.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: ${{ matrix.name }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS Apple Silicon (M)
+            platform: macos
+            runner: macos-15
+            target: aarch64-apple-darwin
+            architecture: arm64
+            artifact: macos-arm64
+          - name: macOS Intel
+            platform: macos
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+            architecture: x64
+            artifact: macos-x64
+          - name: Windows x64
+            platform: windows
+            runner: windows-2022
+            target: x86_64-pc-windows-msvc
+            architecture: x64
+            artifact: windows-x64
+    runs-on: ${{ matrix.runner }}
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      TAURI_TARGET: ${{ matrix.target }}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Set up Windows GStreamer runtime
+        if: matrix.platform == 'windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          path-type: inherit
+          install: >-
+            mingw-w64-ucrt-x86_64-gstreamer
+            mingw-w64-ucrt-x86_64-gst-plugins-base
+            mingw-w64-ucrt-x86_64-gst-plugins-good
+            mingw-w64-ucrt-x86_64-gst-plugins-bad
+            mingw-w64-ucrt-x86_64-gst-libav
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Set build version
+        shell: bash
+        run: node scripts/set-release-version.mjs "$RELEASE_VERSION"
+
+      - name: Install Intel macOS UxPlay build dependencies
+        if: matrix.artifact == 'macos-x64'
+        run: brew install pkg-config gstreamer libplist openssl@3
+
+      - name: Build audited UxPlay for Intel macOS
+        if: matrix.artifact == 'macos-x64'
+        shell: bash
+        env:
+          UXPLAY_COMMIT: 21eef8df25d91e12635c36d8176ad192725baca2
+        run: |
+          set -euo pipefail
+          source_dir="$RUNNER_TEMP/UxPlay"
+          git clone --quiet --branch v1.73.6 --depth 1 https://github.com/FDH2/UxPlay "$source_dir"
+          test "$(git -C "$source_dir" rev-parse HEAD)" = "$UXPLAY_COMMIT"
+          cmake -S "$source_dir" -B "$source_dir/build" -DNO_MARCH_NATIVE=ON
+          cmake --build "$source_dir/build" --parallel "$(sysctl -n hw.ncpu)"
+          install -m 755 "$source_dir/build/uxplay" src-tauri/binaries/uxplay
+
+      - name: Check audited Windows UxPlay binary
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $uxplay = Join-Path $env:GITHUB_WORKSPACE "src-tauri\binaries\uxplay.exe"
+          if (-not (Test-Path -LiteralPath $uxplay -PathType Leaf)) {
+            throw "缺少 src-tauri/binaries/uxplay.exe。请先加入与 UxPlay 1.73.6 固定提交匹配、经过审计的 Windows x64 构建物；不使用未审计的第三方预编译文件。"
+          }
+          "PHONEBRIDGE_GSTREAMER_PREFIX=C:\msys64\ucrt64" >> $env:GITHUB_ENV
+          "C:\msys64\ucrt64\bin" >> $env:GITHUB_PATH
+
+      - name: Prepare macOS sidecars
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$TAURI_TARGET" == "x86_64-apple-darwin" ]]; then
+            node scripts/bundle-uxplay-runtime.mjs --refresh
+          else
+            node scripts/bundle-uxplay-runtime.mjs
+          fi
+          node scripts/prepare-sidecars.mjs --download
+
+      - name: Prepare Windows sidecars
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          pnpm sidecars:download
+          node scripts/bundle-uxplay-runtime.mjs
+
+      - name: Build signed macOS DMG
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          set -euo pipefail
+          CI=true pnpm exec tauri build --target "$TAURI_TARGET" --bundles dmg
+          TAURI_TARGET="$TAURI_TARGET" node scripts/sign-macos-dmg.mjs
+
+      - name: Build Windows installers
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $env:CI = "true"
+          pnpm exec tauri build --target $env:TAURI_TARGET --bundles nsis,msi
+
+      - name: Collect macOS package
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p package
+          dmg="$(find "src-tauri/target/$TAURI_TARGET/release/bundle/dmg" -type f -name '*.dmg' -print -quit)"
+          if [[ -z "$dmg" ]]; then
+            echo "未找到 DMG 输出" >&2
+            exit 1
+          fi
+          cp "$dmg" "package/PhoneBridge-${RELEASE_VERSION}-macos-${{ matrix.architecture }}.dmg"
+
+      - name: Collect Windows packages
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $packageDir = Join-Path $env:GITHUB_WORKSPACE "package"
+          New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
+          $nsis = Get-ChildItem -LiteralPath (Join-Path $env:GITHUB_WORKSPACE "src-tauri\target\$env:TAURI_TARGET\release\bundle\nsis") -Filter "*.exe" -File | Select-Object -First 1
+          $msi = Get-ChildItem -LiteralPath (Join-Path $env:GITHUB_WORKSPACE "src-tauri\target\$env:TAURI_TARGET\release\bundle\msi") -Filter "*.msi" -File | Select-Object -First 1
+          if ($null -eq $nsis -or $null -eq $msi) {
+            throw "未找到 NSIS 或 MSI 输出"
+          }
+          Copy-Item -LiteralPath $nsis.FullName -Destination (Join-Path $packageDir "PhoneBridge-$env:RELEASE_VERSION-windows-x64-setup.exe")
+          Copy-Item -LiteralPath $msi.FullName -Destination (Join-Path $packageDir "PhoneBridge-$env:RELEASE_VERSION-windows-x64.msi")
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: phonebridge-${{ matrix.artifact }}
+          path: package/*
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish GitHub release
+    needs: package
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Create or update release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          tag="v${RELEASE_VERSION}"
+          files=()
+          while IFS= read -r -d '' file; do
+            files+=("$file")
+          done < <(find release-artifacts -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.msi' \) -print0)
+          if (( ${#files[@]} == 0 )); then
+            echo "没有可发布的安装包" >&2
+            exit 1
+          fi
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$tag" "${files[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "快投屏 ${RELEASE_VERSION}" --generate-notes
+          fi

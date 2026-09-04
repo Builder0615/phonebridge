@@ -1,0 +1,22 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "快投屏主窗口与模拟器窗口最小权限：核心 IPC、对话框（诊断导出）、仅供 UxPlay sidecar 的受限 shell scope。",
+  "windows": [
+    "main",
+    "simulator-*"
+  ],
+  "permissions": [
+    "core:default",
+    "dialog:default",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "binaries/uxplay",
+          "sidecar": true
+        }
+      ]
+    }
+  ]
+}

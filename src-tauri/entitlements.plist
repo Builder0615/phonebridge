@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Bluetooth LE peripheral access for the macOS CoreBluetooth HOGP bridge.
+	     App Sandbox is intentionally not enabled: the desktop app must still
+	     launch its audited sidecars and access its bundled resources. -->
+	<key>com.apple.security.device.bluetooth</key>
+	<true/>
+</dict>
+</plist>

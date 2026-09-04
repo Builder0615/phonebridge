@@ -1,0 +1,47 @@
+[package]
+name = "phonebridge"
+version = "0.1.0"
+description = "快投屏 — iPhone AirPlay/BLE HID + Android scrcpy 镜像与输入"
+authors = ["快投屏"]
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "phonebridge_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+# 开启后通过系统 ffmpeg CLI 把镜像流解码为 RGBA 并推送到画布。
+# 默认关闭，保证无 FFmpeg 环境也能 cargo check/test（AGENTS.md 验证命令通用性）。
+video-decode = []
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+env_logger = "0.11"
+thiserror = "2"
+arboard = "3"
+if-addrs = "0.13"
+local-ip-address = "0.6"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+os_info = "3"
+
+# Windows 专属：BLE Peripheral 能力探测（WinRT），仅 Windows 目标编译。
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = ["Devices_Bluetooth", "Foundation"] }
+windows-sys = { version = "0.59", features = ["Win32_System_SystemInformation"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true
