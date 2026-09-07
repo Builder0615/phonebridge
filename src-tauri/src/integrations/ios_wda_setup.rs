@@ -1488,7 +1488,9 @@ mod windows {
                 "device",
                 "USB iPhone",
                 "action_required",
-                device_error.unwrap_or_else(|| "未发现 USB iPhone".into()),
+                device_error
+                    .clone()
+                    .unwrap_or_else(|| "未发现 USB iPhone".into()),
             ),
         });
         checks.push(match iproxy.as_ref() {

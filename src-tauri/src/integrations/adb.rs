@@ -52,10 +52,10 @@ fn common_search_dirs() -> Vec<PathBuf> {
     // Windows SDK 位置（结合 LOCALAPPDATA / USERPROFILE）
     #[cfg(target_os = "windows")]
     {
-        if let Ok(local) = std::env::var_os("LOCALAPPDATA") {
+        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
             dirs.push(PathBuf::from(local).join("Android/Sdk/platform-tools"));
         }
-        if let Ok(profile) = std::env::var_os("USERPROFILE") {
+        if let Some(profile) = std::env::var_os("USERPROFILE") {
             dirs.push(PathBuf::from(profile).join("AppData/Local/Android/Sdk/platform-tools"));
             dirs.push(PathBuf::from(profile).join("Android/Sdk/platform-tools"));
         }

@@ -237,11 +237,10 @@ pub fn os_build_number() -> Option<u32> {
     #[cfg(target_os = "windows")]
     {
         unsafe {
-            use windows_sys::Win32::System::SystemInformation::{
-                RtlGetVersion, RTL_OSVERSIONINFOW,
-            };
-            let mut info: RTL_OSVERSIONINFOW = std::mem::zeroed();
-            info.dwOSVersionInfoSize = std::mem::size_of::<RTL_OSVERSIONINFOW>() as u32;
+            use windows_sys::Wdk::System::SystemServices::RtlGetVersion;
+            use windows_sys::Win32::System::SystemInformation::OSVERSIONINFOW;
+            let mut info: OSVERSIONINFOW = std::mem::zeroed();
+            info.dwOSVersionInfoSize = std::mem::size_of::<OSVERSIONINFOW>() as u32;
             let status = RtlGetVersion(&mut info);
             if status >= 0 {
                 Some(info.dwBuildNumber)

@@ -39,7 +39,7 @@ libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = ["Devices_Bluetooth", "Foundation"] }
-windows-sys = { version = "0.59", features = ["Win32_System_SystemInformation"] }
+windows-sys = { version = "0.59", features = ["Win32_System_SystemInformation", "Wdk_System_SystemServices"] }
 
 [profile.release]
 codegen-units = 1
