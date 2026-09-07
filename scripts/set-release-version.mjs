@@ -37,12 +37,12 @@ updateJson("package.json")
 updateJson("src-tauri/tauri.conf.json")
 updateText(
   "src-tauri/Cargo.toml",
-  /(\[package\][\s\S]*?\nversion = ")[^"]+("\n)/,
+  /(\[package\][\s\S]*?\r?\nversion = ")[^"]+("\r?\n)/,
   "Cargo.toml package",
 )
 updateText(
   "src-tauri/Cargo.lock",
-  /(\[\[package\]\]\nname = "phonebridge"\nversion = ")[^"]+("\n)/,
+  /(\[\[package\]\]\r?\nname = "phonebridge"\r?\nversion = ")[^"]+("\r?\n)/,
   "Cargo.lock phonebridge package",
 )
 
