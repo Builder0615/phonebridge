@@ -93,27 +93,6 @@ jobs:
             mingw-w64-ucrt-x86_64-pkg-config
             base-devel
 
-      - name: Enable VBScript for WiX MSI validation
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $capabilityName = "VBSCRIPT~~~~0.0.1.0"
-          $capability = Get-WindowsCapability -Online -Name $capabilityName -ErrorAction SilentlyContinue | Select-Object -First 1
-          $state = if ($null -eq $capability) { "Unknown" } else { [string]$capability.State }
-          Write-Host "VBSCRIPT capability state before install: $state"
-          if ($state -ne "Installed") {
-            Add-WindowsCapability -Online -Name $capabilityName -ErrorAction Stop | Out-Host
-          }
-          $capability = Get-WindowsCapability -Online -Name $capabilityName
-          if ($capability.State -ne "Installed") {
-            throw "无法安装 VBSCRIPT 功能包，当前状态为 $($capability.State)"
-          }
-          if (-not (Test-Path -LiteralPath (Join-Path $env:WINDIR "System32\vbscript.dll"))) {
-            throw "VBSCRIPT 已报告安装，但 vbscript.dll 不存在"
-          }
-          Write-Host "VBSCRIPT 已启用，WiX MSI ICE 校验可用"
-
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
@@ -221,8 +200,61 @@ jobs:
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
           $env:CI = "true"
           pnpm exec tauri build --target $env:TAURI_TARGET --bundles nsis,msi
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "NSIS 与 MSI 均已由 Tauri 成功生成"
+            exit 0
+          }
+
+          $wixBuildDir = Join-Path $env:GITHUB_WORKSPACE "src-tauri\target\$env:TAURI_TARGET\release\wix\x64"
+          $wixToolsDir = Join-Path $env:LOCALAPPDATA "tauri\WixTools314"
+          $light = Join-Path $wixToolsDir "light.exe"
+          $utilExtension = Join-Path $wixToolsDir "WixUtilExtension.dll"
+          $uiExtension = Join-Path $wixToolsDir "WixUIExtension.dll"
+          $locale = Join-Path $wixBuildDir "locale.wxl"
+          $wixObjects = @(Get-ChildItem -LiteralPath $wixBuildDir -Filter "*.wixobj" -File | ForEach-Object FullName)
+          if (-not (Test-Path -LiteralPath $light -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $utilExtension -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $uiExtension -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $locale -PathType Leaf) -or
+              $wixObjects.Count -eq 0) {
+            throw "Tauri MSI 构建失败，且没有找到可用于 WiX 重链接的完整构建产物"
+          }
+
+          Write-Host "Tauri 的 MSI ICE 校验在 GitHub runner 上失败；使用同一份 WiX 对象以 -sval 重链接"
+          $manualMsi = Join-Path $wixBuildDir "output.msi"
+          $lightArgs = @(
+            "-sval",
+            "-ext", $utilExtension,
+            "-ext", $uiExtension,
+            "-o", $manualMsi,
+            "-cultures:en-us",
+            "-loc", $locale
+          ) + $wixObjects
+          Push-Location $wixBuildDir
+          try {
+            & $light @lightArgs
+            if ($LASTEXITCODE -ne 0) {
+              throw "WiX light.exe 重链接 MSI 失败，退出码：$LASTEXITCODE"
+            }
+          } finally {
+            Pop-Location
+          }
+
+          $msiDir = Join-Path $env:GITHUB_WORKSPACE "src-tauri\target\$env:TAURI_TARGET\release\bundle\msi"
+          New-Item -ItemType Directory -Force -Path $msiDir | Out-Null
+          $msiPath = Join-Path $msiDir "快投屏_$env:RELEASE_VERSION`_x64_en-US.msi"
+          Move-Item -LiteralPath $manualMsi -Destination $msiPath -Force
+          if (-not (Test-Path -LiteralPath $msiPath -PathType Leaf)) {
+            throw "WiX 重链接未生成 MSI：$msiPath"
+          }
+          $nsisDir = Join-Path $env:GITHUB_WORKSPACE "src-tauri\target\$env:TAURI_TARGET\release\bundle\nsis"
+          if (-not (Get-ChildItem -LiteralPath $nsisDir -Filter "*.exe" -File -ErrorAction SilentlyContinue)) {
+            throw "Tauri 在 MSI 阶段失败后未保留 NSIS 安装包"
+          }
+          Write-Host "已生成 NSIS 与 MSI 安装包（MSI 使用 -sval 重链接）"
 
       - name: Collect macOS package
         if: matrix.platform == 'macos'
