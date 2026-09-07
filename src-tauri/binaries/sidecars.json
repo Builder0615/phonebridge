@@ -18,12 +18,12 @@
   "uxplay": {
     "source": "github:FDH2/UxPlay",
     "sourceUrl": "https://github.com/FDH2/UxPlay",
-    "release": "v1.73.6",
-    "commit": "21eef8df25d91e12635c36d8176ad192725baca2",
-    "archiveSha256": "3a1a754bc7ed4b0f72b6237aa4d769238b9c20a71b651bc3fe9ac679e2a67f18",
-    "version": "UxPlay version 1.73.6; for help, use option \"-h\"",
+    "release": "master@d19d22adcf1314124ecf4c27cbc5cf0ae7d05f83",
+    "commit": "d19d22adcf1314124ecf4c27cbc5cf0ae7d05f83",
+    "archiveSha256": "e20f8752a9415d3e81af55c55797e2b1d3e4f5bfe846332822bb3dcbc96451f1",
+    "version": "UxPlay version 1.74; for help, use option \"-h\"",
     "path": "src-tauri/binaries/uxplay",
-    "sha256": "5243961cc145eeda4f20d61528727f1d23c8c75118ae158b1f99c8d56bb11487",
+    "sha256": "e5ca20f60cf41d3ef35ed075ec476a1e401bf8f6fe7b9f29b4a7ff18c687fde4",
     "license": "GPLv3",
     "packaging": "独立进程；macOS 动态库改写为 @rpath，Windows DLL/插件随包分发，不修改 UxPlay 源码",
     "distributionConclusion": "随应用分发时必须同时提供 GPLv3 许可证、对应源代码获取信息，并在发布前完成 copyleft 义务审查。"

@@ -48,7 +48,7 @@ const forceRefresh = process.argv.includes("--refresh")
 const REQUIRED_PLUGINS = [
   "libgstapp.dylib",
   "libgstcoreelements.dylib",
-  // UxPlay 1.73.6 validates these base plugins during gst_init(), even when
+  // UxPlay validates these base plugins during gst_init(), even when
   // 快投屏 disables audio with -as 0. Keep the upstream validation intact.
   "libgstlibav.dylib",
   "libgstplayback.dylib",

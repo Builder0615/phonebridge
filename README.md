@@ -69,9 +69,9 @@ workflow 会分别生成 macOS Apple Silicon（M 芯片）、macOS Intel 和 Win
 对应的 `v<版本号>` GitHub Release。macOS DMG 使用 `signingIdentity: "-"` ad-hoc 自签名，不需要 Apple
 Developer ID 证书；Windows 安装包当前不配置代码签名。
 
-Windows job 会校验 `src-tauri/binaries/uxplay.exe` 是与 UxPlay 1.73.6 固定提交匹配、经过审计的 x64 构建物，
-并使用 MSYS2 GStreamer runtime 随包分发。仓库没有该文件时，Windows job 会明确失败，不会把未审计的第三方
-预编译文件打进公开 Release。
+Windows job 会从 UxPlay 固定提交源码构建经过审计的 x64 `uxplay.exe`，使用上游内置 mDNS 实现，因此不依赖
+runner 或用户安装 Bonjour SDK；MSYS2 GStreamer runtime 也会随包分发。Action 不会把未审计的第三方预编译
+文件打进公开 Release。
 
 Rust 侧（在 `src-tauri/` 内）：
 
@@ -217,7 +217,7 @@ Windows 运行时不需要 Xcode、`xcrun` 或 macOS CoreBluetooth；应用使�
 
 | 依赖 | 用途 | 许可证 | 状态 |
 |---|---|---|---|
-| UxPlay 1.73.6 | iPhone 镜像接收 | GPLv3 | 已随 `src-tauri/binaries/uxplay` 分发；记录见 `sidecars.json` |
+| UxPlay 1.74（固定提交） | iPhone 镜像接收 | GPLv3 | 已随 `src-tauri/binaries/uxplay` 分发；记录见 `sidecars.json` |
 | scrcpy / scrcpy-server | Android 设备端镜像与 control 协议 | Apache-2.0（含部分组件） | 同上；server 与宿主版本必须匹配 |
 | ADB (Platform-Tools) | 设备发现与结构化命令 | Apache-2.0 | 同上 |
 | ffmpeg-static b6.1.1 | 宿主 H264/RTP → RGBA 解码（无窗口） | GPL-3.0-or-later | macOS 按宿主架构固定 asset；SHA-256 见 `src-tauri/binaries/sidecars.json` |

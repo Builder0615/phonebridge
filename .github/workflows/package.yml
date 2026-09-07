@@ -48,6 +48,7 @@ jobs:
     env:
       RELEASE_VERSION: ${{ inputs.version }}
       TAURI_TARGET: ${{ matrix.target }}
+      UXPLAY_COMMIT: d19d22adcf1314124ecf4c27cbc5cf0ae7d05f83
 
     steps:
       - name: Checkout source
@@ -74,16 +75,23 @@ jobs:
       - name: Set up Windows GStreamer runtime
         if: matrix.platform == 'windows'
         uses: msys2/setup-msys2@v2
+        id: msys2
         with:
           msystem: UCRT64
           update: true
           path-type: inherit
           install: >-
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-gstreamer
             mingw-w64-ucrt-x86_64-gst-plugins-base
             mingw-w64-ucrt-x86_64-gst-plugins-good
             mingw-w64-ucrt-x86_64-gst-plugins-bad
             mingw-w64-ucrt-x86_64-gst-libav
+            mingw-w64-ucrt-x86_64-libplist
+            mingw-w64-ucrt-x86_64-openssl
+            mingw-w64-ucrt-x86_64-pkg-config
+            base-devel
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
@@ -99,27 +107,67 @@ jobs:
       - name: Build audited UxPlay for Intel macOS
         if: matrix.artifact == 'macos-x64'
         shell: bash
-        env:
-          UXPLAY_COMMIT: 21eef8df25d91e12635c36d8176ad192725baca2
         run: |
           set -euo pipefail
           source_dir="$RUNNER_TEMP/UxPlay"
-          git clone --quiet --branch v1.73.6 --depth 1 https://github.com/FDH2/UxPlay "$source_dir"
-          test "$(git -C "$source_dir" rev-parse HEAD)" = "$UXPLAY_COMMIT"
+          git init --quiet "$source_dir"
+          git -C "$source_dir" remote add origin https://github.com/FDH2/UxPlay
+          git -C "$source_dir" fetch --quiet --depth 1 origin "$UXPLAY_COMMIT"
+          git -C "$source_dir" checkout --quiet --detach "$UXPLAY_COMMIT"
           cmake -S "$source_dir" -B "$source_dir/build" -DNO_MARCH_NATIVE=ON
           cmake --build "$source_dir/build" --parallel "$(sysctl -n hw.ncpu)"
           install -m 755 "$source_dir/build/uxplay" src-tauri/binaries/uxplay
 
-      - name: Check audited Windows UxPlay binary
+      - name: Prepare Windows UxPlay build environment
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        env:
+          MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
+        run: |
+          $prefix = Join-Path $env:MSYS2_LOCATION "ucrt64"
+          "PHONEBRIDGE_GSTREAMER_PREFIX=$prefix" >> $env:GITHUB_ENV
+          "PKG_CONFIG_PATH=$(Join-Path $prefix 'lib\pkgconfig')" >> $env:GITHUB_ENV
+          (Join-Path $prefix "bin") >> $env:GITHUB_PATH
+
+      - name: Fetch audited UxPlay source for Windows
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
-          $uxplay = Join-Path $env:GITHUB_WORKSPACE "src-tauri\binaries\uxplay.exe"
-          if (-not (Test-Path -LiteralPath $uxplay -PathType Leaf)) {
-            throw "缺少 src-tauri/binaries/uxplay.exe。请先加入与 UxPlay 1.73.6 固定提交匹配、经过审计的 Windows x64 构建物；不使用未审计的第三方预编译文件。"
+          $ErrorActionPreference = "Stop"
+          $sourceDir = Join-Path $env:RUNNER_TEMP "UxPlay"
+          git init --quiet $sourceDir
+          git -C $sourceDir remote add origin https://github.com/FDH2/UxPlay
+          git -C $sourceDir fetch --quiet --depth 1 origin $env:UXPLAY_COMMIT
+          git -C $sourceDir checkout --quiet --detach $env:UXPLAY_COMMIT
+          $actualCommit = (git -C $sourceDir rev-parse HEAD).Trim()
+          if ($actualCommit -ne $env:UXPLAY_COMMIT) {
+            throw "UxPlay 提交不匹配：$actualCommit；预期 $env:UXPLAY_COMMIT"
           }
-          "PHONEBRIDGE_GSTREAMER_PREFIX=C:\msys64\ucrt64" >> $env:GITHUB_ENV
-          "C:\msys64\ucrt64\bin" >> $env:GITHUB_PATH
+
+      - name: Build audited UxPlay for Windows (MSYS2)
+        if: matrix.platform == 'windows'
+        shell: msys2 {0}
+        env:
+          PKG_CONFIG_PATH: /ucrt64/lib/pkgconfig
+        run: |
+          set -euo pipefail
+          source_dir="$(cygpath -u "$RUNNER_TEMP/UxPlay")"
+          cd "$source_dir"
+          cmake -B build -G "Unix Makefiles" -DNO_MARCH_NATIVE=ON
+          cmake --build build --parallel
+          test -f build/uxplay.exe
+
+      - name: Collect audited Windows UxPlay binary
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $sourceDir = Join-Path $env:RUNNER_TEMP "UxPlay"
+          $buildDir = Join-Path $sourceDir "build"
+          $uxplay = Join-Path $buildDir "uxplay.exe"
+          if (-not (Test-Path -LiteralPath $uxplay -PathType Leaf)) {
+            throw "UxPlay Windows 构建未生成 uxplay.exe"
+          }
+          Copy-Item -LiteralPath $uxplay -Destination (Join-Path $env:GITHUB_WORKSPACE "src-tauri\binaries\uxplay.exe") -Force
 
       - name: Prepare macOS sidecars
         if: matrix.platform == 'macos'

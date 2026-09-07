@@ -5,7 +5,7 @@
 - `adb[.exe]` / `adb-<target-triple>`（Android 设备枚举、推送与 reverse/forward，Apache-2.0）
 - `scrcpy-server`（Android 设备端 H264/控制服务，必须与宿主协议版本匹配，Apache-2.0）
 - `scrcpy[.exe]` / `scrcpy-<target-triple>`（仅用于收集匹配 server 与诊断，快投屏不启动其原生窗口，Apache-2.0）
-- `uxplay[.exe]` / `uxplay-<target-triple>`（iPhone 镜像，UxPlay 1.73.6，GPLv3，已记录源码提交与 SHA-256）
+- `uxplay[.exe]` / `uxplay-<target-triple>`（iPhone 镜像，UxPlay 1.74 固定提交，GPLv3，已记录源码提交与 SHA-256）
 - `gstreamer/`（随目标平台分发的 UxPlay headless runtime：macOS 为 dylib、
   插件和 `gst-plugin-scanner`，由 UxPlay 内部管线输出 RGBA；Windows 为 DLL、
   插件和 scanner，供 UxPlay RTP 输出使用；均由应用资源目录加载，不依赖
@@ -45,9 +45,9 @@ pnpm tauri:build:wda   # WDA 精准版：额外强制检查 WDA IPA 和宿主工
   匹配的 Windows GStreamer runtime，运行时不要求用户另装 GStreamer。可选
   `ios-usb/` 也随资源目录进入应用；只有 WDA 精准版发布需把签名 WDA IPA、
   `ideviceinstaller.exe`、`ios.exe`、`iproxy.exe`、`idevice_id.exe` 及依赖 DLL 放入该目录。
-- UxPlay 记录：官方仓库 `FDH2/UxPlay`、release `v1.73.6`、commit
-  `21eef8df25d91e12635c36d8176ad192725baca2`、源码归档 SHA-256
-  `3a1a754bc7ed4b0f72b6237aa4d769238b9c20a71b651bc3fe9ac679e2a67f18`；
+- UxPlay 记录：官方仓库 `FDH2/UxPlay`、版本 `1.74`、固定提交
+  `d19d22adcf1314124ecf4c27cbc5cf0ae7d05f83`、源码归档 SHA-256
+  `e20f8752a9415d3e81af55c55797e2b1d3e4f5bfe846332822bb3dcbc96451f1`；
   构建物与 GStreamer 文件 SHA-256 见 `sidecars.json` 和 `gstreamer/manifest.json`。
 - macOS 使用 `-h265 -s 1920x1080@30 -fps 30 -avdec -vc ... -vs "fdsink fd=3" -as 0 -nc no -nohold`：
   不创建第三方窗口，通过额外文件描述符读取 UxPlay 内部 GStreamer 输出的 RGBA 帧；

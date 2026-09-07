@@ -45,11 +45,11 @@ const iosUsbBins = join(bins, "ios-usb")
 const allowDownload = process.argv.includes("--download")
 const requireWda = process.argv.includes("--require-wda") || process.env.PHONEBRIDGE_REQUIRE_WDA === "1" || process.env.PHONEBRIDGE_REQUIRE_WDA === "true"
 
-const UXPLAY_VERSION = "1.73.6"
+const UXPLAY_VERSION = "1.74"
 const UXPLAY_SOURCE_URL = "https://github.com/FDH2/UxPlay"
-const UXPLAY_RELEASE = "v1.73.6"
-const UXPLAY_COMMIT = "21eef8df25d91e12635c36d8176ad192725baca2"
-const UXPLAY_ARCHIVE_SHA256 = "3a1a754bc7ed4b0f72b6237aa4d769238b9c20a71b651bc3fe9ac679e2a67f18"
+const UXPLAY_RELEASE = "master@d19d22adcf1314124ecf4c27cbc5cf0ae7d05f83"
+const UXPLAY_COMMIT = "d19d22adcf1314124ecf4c27cbc5cf0ae7d05f83"
+const UXPLAY_ARCHIVE_SHA256 = "e20f8752a9415d3e81af55c55797e2b1d3e4f5bfe846332822bb3dcbc96451f1"
 
 mkdirSync(bins, { recursive: true })
 mkdirSync(iosUsbBins, { recursive: true })

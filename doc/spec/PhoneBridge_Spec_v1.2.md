@@ -182,8 +182,8 @@ SessionRegistry
   之后（`videoconvert` 不能缩放，把尺寸 caps 放它前面会导致首帧 caps 协商
   失败、镜像刚连接就断开）；Windows 使用 `-vs fakesink -vrtp ...` 输出，
   由随包的无界面 ffmpeg/SDP 解码分支生成 RGBA。macOS 与 Windows 发布包均内置
-  对应平台的 UxPlay 1.73.6 runtime（官方提交
-  `21eef8df25d91e12635c36d8176ad192725baca2`）和 GStreamer runtime，版本、来源、
+  对应平台的 UxPlay 1.74 runtime（官方固定提交
+  `d19d22adcf1314124ecf4c27cbc5cf0ae7d05f83`）和 GStreamer runtime，版本、来源、
   SHA-256 与 GPL/LGPL/MIT 组件记录见 `src-tauri/binaries/sidecars.json`。
   快投屏使用 `-h265 -s 1920x1080@30 -fps 30`，UxPlay 不得直接创建用户可见的镜像窗口；
   若当前构建不具备该输出能力，会话必须返回“待验证/依赖缺失”，不能以黑色占位窗口伪装成功。
@@ -318,7 +318,8 @@ interface IosControlCapability {
 - GitHub Actions 打包 workflow 只允许通过 `workflow_dispatch` 触发，版本号由触发脚本交互式输入；
   每次打包同时产出 macOS Apple Silicon（arm64/M 芯片）与 Intel（x86_64）DMG，以及 Windows x64
   NSIS/MSI 安装包，不因普通提交或 push 自动打包。macOS 两种架构均使用目标架构匹配的 sidecar；
-  Windows 仅接受经过审计的 UxPlay 1.73.6 x64 构建物。
+  Windows runner 从固定提交源码构建并校验 UxPlay 1.74 x64；发布包只接受该构建物，不依赖
+  runner 或用户安装 Bonjour SDK。
 - M0：同 v1.1，另加「双窗口生命周期与 activate 切换」验证。
 - MVP：控制面板 + 单设备模拟器窗口 + 自动识别 + 帧管线；
   多设备并发（≥2）为 P1 优先完成。
