@@ -433,7 +433,11 @@ function collectFfmpeg() {
 
 function validatePackagedArchitectures() {
   if (platform !== "darwin") return
-  for (const name of ["adb", "ffmpeg", "scrcpy", "uxplay"]) {
+  // The host scrcpy executable is diagnostic-only and is not listed in any
+  // Tauri externalBin/resources entry.  Only validate executables that are
+  // actually packaged; otherwise a stale architecture-specific scrcpy file
+  // left in the workspace can incorrectly block an Intel/ARM release.
+  for (const name of ["adb", "ffmpeg", "uxplay"]) {
     for (const p of [join(bins, exe(name)), join(bins, `${exe(name)}-${TRIPLE}`)]) {
       if (existsSync(p) && !isHostCompatibleExecutable(p)) {
         throw new Error(`内置 ${p} 不包含当前宿主架构 ${hostArchitecture()}，请运行 pnpm sidecars:download`)
