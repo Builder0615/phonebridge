@@ -10,10 +10,15 @@
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::sync::{Arc, Mutex};
 
-use super::hid_adapter::{authorization_name, HidStatus, HidStatusCallback, IHidController};
+use super::hid_adapter::{
+    authorization_name, HidStatus, HidStatusCallback, IHidController, INPUT_REPORT_BOOT_MOUSE,
+    INPUT_REPORT_MOUSE,
+};
 use crate::integrations::hid_report::{KeyboardReport, MouseReport};
 use crate::integrations::AdapterError;
 use crate::session::state::ControlState;
+
+const BLE_ADVERTISED_NAME: &str = "KTP";
 
 type RawStatusCallback = unsafe extern "C" fn(
     context: *mut c_void,
@@ -81,14 +86,15 @@ unsafe impl Sync for MacOsHidAdapter {}
 
 impl MacOsHidAdapter {
     pub fn new() -> Self {
+        let advertised_name = compact_advertised_name(BLE_ADVERTISED_NAME);
         let shared = Arc::new(MacOsHidShared::new(
             host_name(),
-            compact_advertised_name(crate::APP_NAME),
+            advertised_name.clone(),
         ));
         // C ABI 对象在销毁前持有这一个 Arc strong reference；回调每次临时增加
         // 引用，避免异步 CoreBluetooth 回调读取已经释放的 Rust 状态。
         let callback_context = Arc::into_raw(shared.clone());
-        let local_name = CString::new(crate::APP_NAME).expect("APP_NAME 不含 NUL");
+        let local_name = CString::new(advertised_name).expect("BLE 广播短名不含 NUL");
         let handle = unsafe {
             phonebridge_hid_create(
                 Some(status_callback),
@@ -139,9 +145,8 @@ impl MacOsHidAdapter {
     }
 }
 
-/// Apple 的前台 BLE 广播在保留完整 128-bit HID 服务 UUID 后只剩 8 个
-/// UTF-8 字节给本地名称。按字符边界截断，避免 CoreBluetooth 把 HID UUID
-/// 放入 overflow 广播区；iOS 系统设置不会主动扫描该区域。
+/// Keep the advertised name within a conservative UTF-8 byte budget so the
+/// standard HID service and local name remain in the primary advertisement.
 fn compact_advertised_name(name: &str) -> String {
     const MAX_UTF8_BYTES: usize = 8;
     let mut end = 0;
@@ -227,8 +232,14 @@ fn native_status_error(
         _ => "macOS CoreBluetooth HOGP 操作失败",
     };
     if native_error_code != 0 {
+        let native_detail = match native_error_code {
+            // CBErrorUUIDNotAllowed. This is the actionable distinction from
+            // a powered-off controller or a pending Bluetooth permission.
+            8 => "，原因：CoreBluetooth 不允许该 UUID（GATT 服务必须使用完整 Bluetooth Base UUID）",
+            _ => "",
+        };
         Some(format!(
-            "{operation}（错误码 {error_code}，CoreBluetooth 错误码 {native_error_code}，状态 {state}）"
+            "{operation}（错误码 {error_code}，CoreBluetooth 错误码 {native_error_code}{native_detail}，状态 {state}）"
         ))
     } else {
         Some(format!("{operation}（错误码 {error_code}，状态 {state}）"))
@@ -371,6 +382,15 @@ unsafe extern "C" fn status_callback(
         status.connected = connected != 0;
         status.subscribed = subscribed != 0;
         status.input_report_mask = input_report_mask.clamp(0, u8::MAX as i32) as u8;
+        // The hint is only meaningful before the iPhone has subscribed to a
+        // mouse input report.  The old implementation initialized it to true
+        // but never cleared it, so a working AssistiveTouch setup continued to
+        // render the yellow instruction forever.
+        let mouse_report_ready = status.input_report_mask
+            & (INPUT_REPORT_MOUSE | INPUT_REPORT_BOOT_MOUSE)
+            != 0;
+        status.assistive_touch_hint =
+            !(status.connected && status.subscribed && mouse_report_ready);
         status.paired = status.connected;
         status.authorization = Some(authorization);
         status.control = if status.connected {
@@ -419,6 +439,13 @@ mod tests {
         assert!(message.contains("发布 HOGP GATT 服务失败"));
         assert!(message.contains("CoreBluetooth 错误码 14"));
         assert!(message.contains("PoweredOn"));
+    }
+
+    #[test]
+    fn explains_uuid_not_allowed_service_failure() {
+        let message = native_status_error(-20, 5, 3, 8).expect("UUID failure should be diagnosed");
+        assert!(message.contains("CoreBluetooth 不允许该 UUID"));
+        assert!(message.contains("完整 Bluetooth Base UUID"));
     }
 
     #[test]

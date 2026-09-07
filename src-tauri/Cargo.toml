@@ -1,6 +1,6 @@
 [package]
 name = "phonebridge"
-version = "0.1.0"
+version = "0.0.1"
 description = "快投屏 — iPhone AirPlay/BLE HID + Android scrcpy 镜像与输入"
 authors = ["快投屏"]
 edition = "2021"

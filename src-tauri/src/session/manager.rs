@@ -27,7 +27,8 @@ pub struct SessionPreferences {
     /// iOS BLE 相对鼠标的宿主侧速度倍率；Android 不使用。
     #[serde(default = "default_ios_pointer_scale")]
     pub ios_pointer_scale: f32,
-    /// 启用实验性的 USB + WDA 绝对坐标输入；不可用时自动回退 BLE。
+    /// 启用实验性的 USB + WDA 绝对坐标输入；不可用时拒绝启动，避免
+    /// 用户以为正在使用绝对坐标、实际却被静默切回 BLE 相对鼠标。
     #[serde(default)]
     pub ios_usb_control_enabled: bool,
 }

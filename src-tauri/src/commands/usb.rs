@@ -3,6 +3,8 @@
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
+use crate::commands::CmdResult;
+use crate::integrations::ios_wda_setup::IosWdaSetupReport;
 use crate::integrations::usb_devices::{list_usb_devices, UsbDevice};
 
 #[derive(Debug, Clone, Serialize)]
@@ -42,6 +44,62 @@ pub fn get_ios_control_capability(
 ) -> crate::integrations::ios_usb_control::IosControlCapability {
     app.state::<crate::session::manager::SessionRegistry>()
         .ios_control_capability()
+}
+
+/// 只读检查 iOS WDA 自动准备流程当前卡在哪一步。
+#[tauri::command]
+pub async fn inspect_ios_wda(
+    app: AppHandle,
+    device_id_masked: Option<String>,
+) -> CmdResult<IosWdaSetupReport> {
+    let registry = app.state::<crate::session::manager::SessionRegistry>();
+    let resources = registry.resources_dir().to_path_buf();
+    let app_data = app.path().app_data_dir().map_err(|error| {
+        crate::commands::CommandErrorPayload::new(
+            "app_data_dir",
+            format!("无法定位应用数据目录：{error}"),
+        )
+    })?;
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::integrations::ios_wda_setup::inspect(
+            &resources,
+            &app_data,
+            device_id_masked.as_deref(),
+        )
+    })
+    .await
+    .map_err(|error| {
+        crate::commands::CommandErrorPayload::new("ios_wda_inspect", error.to_string())
+    })
+}
+
+/// 用户明确点击“一键准备 WDA”后执行：优先安装发布包内的签名 IPA，使用 go-ios
+/// 启动 XCTest/WDA 并等待设备上的 /status 成功；没有 IPA 的 macOS 开发包才回退到
+/// Xcode 源码流程。
+#[tauri::command]
+pub async fn prepare_ios_wda(
+    app: AppHandle,
+    device_id_masked: Option<String>,
+) -> CmdResult<IosWdaSetupReport> {
+    let registry = app.state::<crate::session::manager::SessionRegistry>();
+    let resources = registry.resources_dir().to_path_buf();
+    let app_data = app.path().app_data_dir().map_err(|error| {
+        crate::commands::CommandErrorPayload::new(
+            "app_data_dir",
+            format!("无法定位应用数据目录：{error}"),
+        )
+    })?;
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::integrations::ios_wda_setup::prepare(
+            &resources,
+            &app_data,
+            device_id_masked.as_deref(),
+        )
+    })
+    .await
+    .map_err(|error| {
+        crate::commands::CommandErrorPayload::new("ios_wda_prepare", error.to_string())
+    })
 }
 
 fn to_view(d: &UsbDevice) -> UsbDeviceView {

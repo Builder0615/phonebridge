@@ -126,9 +126,8 @@ pub fn run_paste_text_flow(
             error: Some(PasteError {
                 code: "unencodable_chars".into(),
                 message: format!(
-                    "{} 个字符无法通过当前 HID 键盘布局表达（位置：{:?}），未发送",
-                    positions.len(),
-                    positions
+                    "有 {} 个字符（中文、Emoji 或其他 Unicode）无法通过当前 BLE HID 键盘布局表达，未发送；中英文混合文本请使用 iOS USB/WDA 精确控制",
+                    positions.len()
                 ),
             }),
         };

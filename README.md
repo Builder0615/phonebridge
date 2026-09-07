@@ -4,7 +4,7 @@
 各自独立的模拟器窗口，并通过相应控制链路向设备发送鼠标、键盘和文字输入。
 
 - iPhone：AirPlay（[UxPlay](https://github.com/FDH2/UxPlay)，GPLv3）+ BLE HID 键鼠；
-  可选使用 USB + 用户自备 WDA 的绝对坐标控制通道，避免 BLE 相对鼠标的累计误差。
+  WDA 精准版可内置已签名 WDA IPA，由应用在 macOS/Windows 上直接安装并启动绝对坐标控制通道，避免 BLE 相对鼠标的累计误差。
 - Android：[scrcpy](https://github.com/Genymobile/scrcpy)（Apache-2.0）：设备端
   `scrcpy-server` 编码，宿主 Rust 接收独立 H264/control 通道并把画面解码到 Tauri canvas。
 
@@ -41,8 +41,12 @@ pnpm lint             # ESLint（flat config）
 pnpm test             # Vitest：坐标映射 / 键码归一 / 粘贴策略
 pnpm build            # tsc + vite build
 pnpm tauri:dev        # Tauri 开发启动（vite dev + 原生壳，双窗口可交互）
-pnpm tauri:build      # Rust 编译 + 打包（当前宿主为目标平台）
-pnpm tauri:build:dmg  # macOS DMG；App 与 DMG 均使用 ad-hoc（本地自签名）代码签名
+pnpm tauri:build      # BLE 兼容版：不要求 WDA，当前宿主为目标平台
+pnpm tauri:build:ble  # 同上，显式名称
+pnpm tauri:build:wda  # WDA 精准版：强制要求签名 WDA IPA 已内置
+pnpm tauri:build:dmg  # macOS BLE 兼容版 DMG
+pnpm tauri:build:dmg:wda # macOS WDA 精准版 DMG
+pnpm tauri:build:release # WDA 精准版别名
 pnpm tauri build --bundles app   # 跳过 DMG（无交互会话时更快）
 ```
 
@@ -111,20 +115,25 @@ pnpm tauri dev
   - iOS BLE：WinRT `GattServiceProvider` 骨架（Windows）+ macOS CoreBluetooth HOGP
     GATT 服务、报告特征和异步订阅状态回调；macOS 仍需真实 iPhone 配对验证；
   - Android：ADB 设备枚举、`wm size` 元数据、scrcpy-server 推送/启动、独立 H264 与 control 通道。
-- **iOS USB/WDA 实验通道**：`IosUsbControl` 通过回环 HTTP/W3C Actions 发绝对坐标；
-  `iproxy`、`idevice_id` 支持从应用资源目录加载，缺失时自动回退 BLE。Windows 构建
-  不调用 macOS 专有的 `xcrun`、CoreBluetooth 或 Xcode。
+- **iOS USB/WDA 精确通道**：`IosUsbControl` 通过回环 HTTP/W3C Actions 发绝对坐标，
+  通过 WDA `/wda/keys` 发 UTF-8 文本（支持中英文混合粘贴）。WDA 精准版内置已签名的
+  `WebDriverAgentRunner.ipa`、`ideviceinstaller` 和 `go-ios`；用户点击“一键准备 WDA”后，
+  应用自动安装、启动并轮询 `/status`，随后注册回环端口。`iproxy`、`idevice_id` 支持从
+  应用资源目录加载，开启精确模式但链路缺失时会明确报错，不会静默回退 BLE。Windows
+  运行时不调用 macOS 专有的 `xcrun`、CoreBluetooth 或 Xcode，但需要 Apple Mobile
+  Device/usbmux 传输层以及 go-ios 所需的同目录 DLL。
 - 画布坐标映射（黑边/旋转/缩放/clamp/相对拆分）、键盘归一、粘贴策略（≤32 KiB、字符反馈）；
   Android 使用画布内容区的绝对触摸坐标，iOS BLE 鼠标使用桌面指针实际 CSS 相对位移，
   避免把下采样视频像素重复放大；移动队列只保留最新绝对点/累加相对位移，并将大位移
   拆成完整 HID 报告。iOS 指针速度/加速度由系统控制，不能通过公开 HOGP 接口保证
   绝对“瞬移”到画布点；开启 USB/WDA 后改用 WDA 绝对坐标。
-- 粘贴链路：iOS USB/WDA 模式使用 WDA 键盘动作，未启用/不可用时回退 BLE HID 键盘报告；
-  Android 使用 scrcpy UTF-8 control message。
+- 粘贴链路：iOS USB/WDA 模式使用 WDA `/wda/keys` UTF-8 文本接口，支持中英文混合文本；
+  未启用时回退 BLE HID 键盘报告（仅支持当前 HID 布局可表达的字符）；Android
+  使用 scrcpy UTF-8 control message。
 - 诊断：一键检查（宿主/网络/mDNS/蓝牙/依赖）与脱敏导出包；日志不记录输入内容。
 - 设置：自动控制、粘贴快捷键、滚轮步长、粘贴上限、iOS BLE 速度倍率、实验性 USB/WDA
   绝对坐标通道；音频/录制开关预留（V1）。
-- 单元测试：Rust 97 个通过、Vitest 57 个通过，覆盖状态机、多会话注册表、坐标映射、
+- 单元测试：Rust 101 个通过、Vitest 57 个通过，覆盖状态机、多会话注册表、坐标映射、
   编码、ADB/设备枚举参数构造、WDA 坐标转换、输入队列、脱敏和帧管线（真实设备用例仍需
   在兼容性矩阵中单独记录）。
 
@@ -134,9 +143,10 @@ pnpm tauri dev
   → ffmpeg → canvas 已接线，仍需在真实 iPhone、Bonjour/防火墙和 UxPlay 1.73+ 构建
   上完成端到端验证。
 - **iOS HOGP 广播/配对**：WinRT 与 CoreBluetooth 实现需在 Windows/macOS + 真机验证。
-- **iOS USB/WDA 绝对控制**：代码和跨平台 `iproxy`/`idevice_id` 资源入口已接入；
-  仍需在 Windows/macOS 分别准备审计后的工具、Apple Mobile Device/usbmux 传输、
-  用户信任并运行的 WDA，再完成 AT-026/AT-027 真机验证。
+- **iOS USB/WDA 绝对控制**：应用内安装/启动/校验链路和 macOS Xcode 回退已接入；
+  仓库不提交设备绑定的签名 IPA，发布前必须由签名构建机通过
+  `PHONEBRIDGE_WDA_IPA_PATH` 注入并记录 SHA-256，再在 Windows/macOS 真机完成
+  AT-026/AT-027 验证。没有该 IPA 的开发包不会声称支持 Windows 自动安装。
 - **Android 连续多点输入**：scrcpy control 已支持单指触摸、滚轮、键码和 UTF-8 文本；
   多指手势仍待后续协议建模与真机验证。
 - **双窗口形态**：控制面板 + 模拟器窗口代码已就绪；窗口布局与激活切换需在真实宿主
@@ -165,10 +175,16 @@ macOS 防火墙（ALF）会对**未签名 / ad-hoc 签名**的 uxplay 静默丢�
 - 默认 iOS 键鼠输入走 BLE HID（HOGP）：宿主需具备蓝牙 LE Peripheral 能力。该通道
   是相对鼠标；Pointer Lock、有序移动队列和完整 HID 报告能显著降低误差，但由于
   iOS 系统指针加速度和公开 HOGP 接口限制，不能保证绝对坐标。
-- 可选 USB/WDA 精确控制：在设置中开启后，应用通过同目录 `iproxy` 将 USB 上的 WDA
-  `8100` 转至本机回环端口，WDA 接收绝对 W3C Actions；画面仍走 AirPlay。WDA/USB
-  不可用时自动回退 BLE，日志记录原因，不能伪装成已启用精确通道。该方案不安装
-  未知组件、不绕过签名/信任、不以越狱为前提。
+- 可选 USB/WDA 精确控制：发布包携带已签名的 `WebDriverAgentRunner.ipa`、
+  `ideviceinstaller` 和 `go-ios`。在设置中点击“一键准备 WDA”后，应用检查 USB 信任，
+  安装 IPA，启动 XCTest runner，并轮询 WDA `/status`；macOS 和 Windows 走同一套直装
+  流程。WDA 接收绝对 W3C Actions，混合文本粘贴使用 `/wda/keys`。画面仍走 AirPlay。
+  打开该开关后如果 WDA/USB 不可用会直接报错，不能静默回退到 BLE，也不能伪装成已启用
+  精确通道。
+- 这里的“自签名”指使用合法 Apple 开发/企业分发身份签出的 IPA，不是可以绕过 Apple
+  授权的任意签名。开发签名只对 provisioning profile 授权的设备有效；首次运行仍可能
+  需要用户确认开发者模式、设备信任和开发者证书信任。应用不保存私钥，不在运行时重签名，
+  也不要求终端用户手动安装 WDA。
 - macOS：需开启蓝牙，并在 系统设置 → 隐私与安全性 → 蓝牙 中**允许本应用**；
   未授权时广播不会生效（App 会给出明确提示），iPhone 蓝牙列表中不会出现「快投屏」。
 - Windows：无蓝牙模块的台式机请使用 **USB 蓝牙适配器**（BLE 4.0/5.0，Windows 10
@@ -176,6 +192,18 @@ macOS 防火墙（ALF）会对**未签名 / ad-hoc 签名**的 uxplay 静默丢�
 - 配对步骤：iPhone 设置 → 蓝牙 → 连接面板提示的本机名称（macOS 可能显示为
   `Mac mini`）；键盘配对后模拟器窗口聚焦即可输入。鼠标指针和点击还需在 iPhone
   设置 → 辅助功能 → 触控 → 辅助触控中开启，并在“设备 → 蓝牙设备”中选择该设备。
+- macOS HOGP 不会在 iPhone HID 握手期间动态修改 GATT 表；若仍提示“配对不成功”，请在
+  iPhone 设置 → 蓝牙 → 对应的 `Mac`/`Mac mini` → 忽略此设备，停止并重新投屏后再配对；
+  iOS 不提供公开接口让桌面应用替用户删除系统蓝牙绑定。
+
+#### USB/WDA 操作步骤
+
+1. WDA 精准版构建必须先把已签名 IPA 和经过审计的 `ideviceinstaller`、`go-ios`、Windows DLL 放入安装包；使用 `pnpm tauri:build:wda` / `pnpm tauri:build:release`（或先执行 `pnpm sidecars:release`）会在缺少 IPA/安装器/启动器时直接失败。无 WDA 兼容版使用 `pnpm tauri:build:ble`，不要求这些资源。终端用户不执行这一步。
+2. 用 USB 连接并解锁 iPhone。首次使用按系统提示完成开发者模式、USB 信任和开发者证书信任。
+3. 在设置中点击“一键准备 WDA”；应用会自动安装并启动 WDA。准备成功后打开“iOS USB/WDA 精确控制”；如果当前已经在投屏，先取消投屏再重新投屏，让会话切换到绝对坐标通道。
+4. 设备行必须显示 `usb_wda`/“iOS USB/WDA 绝对坐标输入已连接”；如果启动失败，查看 `ios_usb_required` 日志和 WDA 检查项。让手机上的输入框获得焦点，再点击“粘贴”或在模拟器画布按 Ctrl/Cmd+V。
+
+Windows 运行时不需要 Xcode、`xcrun` 或 macOS CoreBluetooth；应用使用内置 `ideviceinstaller.exe` 和 `ios.exe` 完成直装/启动，需要系统可用的 Apple Mobile Device/usbmux 传输和随包 DLL。
 
 ### 多窗口与 Dock
 
@@ -194,7 +222,9 @@ macOS 防火墙（ALF）会对**未签名 / ad-hoc 签名**的 uxplay 静默丢�
 | ADB (Platform-Tools) | 设备发现与结构化命令 | Apache-2.0 | 同上 |
 | ffmpeg-static b6.1.1 | 宿主 H264/RTP → RGBA 解码（无窗口） | GPL-3.0-or-later | macOS 按宿主架构固定 asset；SHA-256 见 `src-tauri/binaries/sidecars.json` |
 | GStreamer 1.28.6 | UxPlay headless 视频管线 | LGPL-2.0/LGPL-2.1/MIT（按组件） | macOS/Windows 对应 runtime 随包（含 `videoconvertscale`）；文件 SHA-256 与声明见 `gstreamer/manifest.json`，运行时不依赖宿主安装 |
-| `iproxy` / `idevice_id`（可选） | USB mux 隧道 / iPhone 识别 | GPL-2.0-or-later / LGPL-2.1-or-later | 仅在 `src-tauri/binaries/ios-usb/` 放入审计构建物后随资源分发；Windows 还需同目录 DLL 与 Apple Mobile Device/usbmux 传输 |
+| WDA Runner IPA | iOS XCTest/WDA 绝对坐标与 Unicode 文本 | WDA BSD-3-Clause + Apple 签名/配置文件约束 | 发布方通过 `PHONEBRIDGE_WDA_IPA_PATH` 注入；SHA-256 与 Bundle ID 记录在 `sidecars.json`，不提交私钥 |
+| `ideviceinstaller` / `go-ios` | WDA 直装、RemoteXPC 启动与回环转发 | GPL-2.0-or-later / MIT | macOS/Windows 审计构建物随 `ios-usb/` 资源分发；Windows 还需同目录 DLL |
+| `iproxy` / `idevice_id`（可选回退） | USB mux 隧道 / iPhone 识别 | GPL-2.0-or-later / LGPL-2.1-or-later | 仅在 `src-tauri/binaries/ios-usb/` 放入审计构建物后随资源分发；Windows 还需同目录 DLL 与 Apple Mobile Device/usbmux 传输 |
 | windows-ble-hid | iOS HOGP 参考 | MIT（working spike） | 参考实现，不直接并入 |
 | shadcn/ui 组件 | UI 原语 | 源码纳入 + Radix 清单 | `components.json` 记录 |
 

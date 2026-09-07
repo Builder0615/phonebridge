@@ -72,11 +72,34 @@ export interface IosControlCapability {
   usbWdaEnabled: boolean
   wdaReachable: boolean
   iproxyPresent: boolean
+  wdaArtifactPresent: boolean
+  directInstallReady: boolean
   detail: string
 }
 
 export const getIosControlCapability = (): Promise<IosControlCapability> =>
   call<IosControlCapability>("get_ios_control_capability")
+
+export interface IosWdaCheck {
+  key: string
+  title: string
+  status: "ok" | "pending" | "action_required" | "failed" | "unsupported" | string
+  detail: string
+}
+
+export interface IosWdaSetupReport {
+  stage: "ready" | "needs_action" | "preparing" | "failed" | "unsupported" | string
+  ready: boolean
+  deviceIdMasked: string | null
+  checks: IosWdaCheck[]
+  detail: string
+}
+
+export const inspectIosWda = (deviceIdMasked?: string | null): Promise<IosWdaSetupReport> =>
+  call<IosWdaSetupReport>("inspect_ios_wda", { deviceIdMasked: deviceIdMasked ?? null })
+
+export const prepareIosWda = (deviceIdMasked?: string | null): Promise<IosWdaSetupReport> =>
+  call<IosWdaSetupReport>("prepare_ios_wda", { deviceIdMasked: deviceIdMasked ?? null })
 
 // ---------------------------------------------------------------------------
 // 多设备会话

@@ -57,8 +57,8 @@
 | 控制面板 | 所有操作集中在一个主窗口 | 设备列表、状态、诊断、设置、粘贴 |
 | USB 自动识别 | 自动列出已连接 iPhone/Android | iPhone: xcrun devicectl/xcdevice/system_profiler；Android: adb；缺依赖返回可理解错误 |
 | iPhone 镜像启动 | 面板启动 AirPlay 接收器并提示连接步骤 | iPhone 必须在控制中心“屏幕镜像”中选择快投屏；USB 仅用于识别，画面不走 USB |
-| 文字粘贴 | 显式粘贴只发往当前激活设备 | iOS USB/WDA 模式优先走 WDA 文本输入，未启用或不可用时回退 BLE HID；Android 使用 scrcpy control text message |
-| iOS 输入通道 | 默认经 BLE HID（HOGP）转发；可选 USB + WDA 绝对坐标 | BLE 仍要求宿主具备 LE Peripheral；USB/WDA 要求用户已安装、信任并运行 WDA，宿主通过跨平台 `iproxy`/usbmux 转发到本机回环地址。WDA 不可用时自动回退 BLE；不自动安装未知或未签名 iOS 组件，不以越狱或私有框架为前提 |
+| 文字粘贴 | 显式粘贴只发往当前激活设备 | iOS USB/WDA 模式走 WDA 文本输入，未启用精确模式时回退 BLE HID；Android 使用 scrcpy control text message |
+| iOS 输入通道 | 默认经 BLE HID（HOGP）转发；可选 USB + WDA 绝对坐标 | BLE 兼容版不要求 WDA，仍要求宿主具备 LE Peripheral；WDA 精准版内置发布方签名的 `WebDriverAgentRunner.ipa`、`ideviceinstaller` 与 `go-ios`，用户点击准备后由应用自动安装、启动、校验 WDA，并通过回环端口发送绝对输入。显式开启 USB/WDA 精确模式但 WDA 不可用时必须报错并保持未连接，不能静默回退 BLE（避免用户误把相对鼠标当成绝对坐标）；不绕过 Apple 签名、信任、开发者模式或设备授权，不以越狱或私有框架为前提 |
 
 其余（链路、安全、依赖、性能、测试要求）继承 v1.1 §2–§12。
 
@@ -199,24 +199,41 @@ SessionRegistry
   `aarch64-apple-darwin`。
 - Android 每设备一个 `scrcpy-server` 实例（serial + 独立 `scid` 区分）。
 - BLE：全局单活动控制（硬件限制）；仅激活设备启用广播。
-- iOS USB/WDA 精确控制为可选 P1 通道：USB mux 层将物理 iPhone 的 WDA TCP 8100
-  转发至本机回环端口，Rust 通过 W3C Actions 发送绝对点按、拖动、滚轮和键盘事件；
-  画面仍走 AirPlay，不把 WDA 当作视频通道。WDA/iproxy/Apple USB 驱动或信任状态
-  任一不满足时，记录 `ios_usb_fallback` 并使用 BLE，不把控制状态伪装成 USB 已连接。
-  Windows 发行包只允许使用经过审计的跨平台 `iproxy.exe`/iOS USB 组件；不能依赖
-  macOS 的 xcrun、CoreBluetooth 或 Xcode 环境。
+- iOS USB/WDA 精确控制为可选 P1 通道：WDA 精准版发行包将签名的 WDA IPA、`ideviceinstaller`
+  与 `go-ios` 放入 `ios-usb/` 资源目录。用户点击准备后，应用通过 USB 安装 IPA，使用
+  `go-ios ui run wda` 启动 XCTest runner 并将设备 8100 转发至本机回环端口，Rust
+  通过 W3C Actions 发送绝对点按、拖动、滚轮和按键事件；粘贴使用 WDA 的 `/wda/keys`
+  UTF-8 文本接口，以支持中英文混合文本。画面仍走 AirPlay，不把 WDA 当作视频通道。
+  显式开启精确模式后，WDA/安装器/启动器/Apple USB 驱动或信任状态任一不满足时，记录
+  `ios_usb_required` 并拒绝启动控制，不把控制状态伪装成 USB 已连接，也不静默使用 BLE。
+  Windows 运行时不能依赖 macOS 的 xcrun、CoreBluetooth 或 Xcode，但必须具备 Apple
+  Mobile Device/usbmux 传输层和随包 DLL。
+- WDA IPA 的“自签名”仅表示发布方使用合法 Apple 开发/企业身份完成签名；开发签名的
+  provisioning profile 仍限制可安装设备。仓库不提交私钥/p12/profile，应用不在运行时
+  重签名，也不绕过设备信任、开发者模式或系统安全提示。没有签名 IPA 的 BLE 兼容版
+  仍可使用 BLE；只有 macOS 开发构建保留 Xcode 备用流程，不能宣称 Windows 可自动安装 WDA。
 - iOS 鼠标指针和点击依赖系统的 AssistiveTouch：配对后必须由用户在 iPhone
   设置 → 辅助功能 → 触控 → 辅助触控中开启，并在“设备 → 蓝牙设备”中选择该设备；
   键盘输入不依赖 AssistiveTouch。应用只能提示该设置，不能通过公开 API 自动开启。
-  iOS 粘贴复用 BLE HID 键盘报告，仅能发送当前键盘布局可表达的字符；不可表达的
-  中文、Emoji 等文本必须返回明确错误，不能静默丢失。
+- iOS BLE 粘贴复用 HID 键盘报告，仅能发送当前键盘布局可表达的字符；不可表达的
+  中文、Emoji 等文本必须返回明确错误，不能静默丢失。启用 USB/WDA 后，粘贴切换到
+  WDA `/wda/keys` 文本接口发送混合 Unicode；手机必须有当前获得焦点的可编辑控件，
+  且 WDA 会话必须保持可用。
 - macOS CoreBluetooth 不得手动添加系统维护的 GAP/GATT 服务（如 `0x1800`）；
   广播前按 Battery Information → Device Information → HID 服务顺序发布应用服务。
-  完整 128-bit HID UUID 必须留在前台主广播包中，因此本地广播名限制为不超过
-  8 个 UTF-8 字节（当前产品名 `快投屏` 的兼容短名为 `快投`）。macOS 的公开
-  CoreBluetooth 外设接口可能让 iOS 系统蓝牙列表显示宿主电脑的 GAP 名称，
-  面板必须展示该实际配对名称，不能要求用户只搜索产品名。服务发布或广播失败
-  必须进入可诊断的错误状态。
+  GATT 数据库中的 SIG 标准服务和特征必须使用完整的 Bluetooth Base UUID
+  （例如 HID 服务为 `00001812-0000-1000-8000-00805F9B34FB`）；macOS 外设角色对
+  本项目的服务表使用紧凑 UUID 会返回 `CBErrorUUIDNotAllowed`。只有广播包中的 HID
+  服务标识使用等价的紧凑 `0x1812`，以节省主广播空间。前台主广播只发送 HID 服务和
+  不超过 8 个 UTF-8 字节的短 ASCII 名称（当前兼容短名为 `KTP`），避免服务 UUID 被
+  CoreBluetooth 放入 iOS 系统设置不会主动扫描的 overflow 区域。macOS 的公开
+  CoreBluetooth 外设接口可能让 iOS 系统蓝牙列表显示宿主电脑的 GAP 名称，面板必须
+  展示该实际配对名称，不能要求用户只搜索产品名。服务发布或广播失败必须进入可诊断
+  的错误状态。
+- GATT 服务发布完成并开始广播后，不得在 iPhone 的 HID 发现/加密握手期间动态添加或
+  删除服务；旧缓存恢复只能通过完整停止广播、移除并重新发布固定 GATT 表，再重新开始
+  广播。应用不能通过公开 API 删除 iPhone 系统蓝牙绑定；仍失败时，界面必须引导用户
+  在 iPhone 设置中忽略对应的 Mac 条目后重新投屏。
 
 ### 5.4 接口草案（增量）
 
@@ -280,12 +297,20 @@ interface IosControlCapability {
 | AT-022 | 单设备崩溃 | 仅该会话显示失败并可重连；面板与其它会话正常 |
 | AT-023 | 移动/关闭模拟器窗口 | 拖动系统原生标题栏可移动；最大化入口不可用；点击关闭会停止会话并回收资源；普通画面拖动仍转发到设备 |
 | AT-024 | macOS iOS 投屏时查看程序坞并关闭模拟器 | 同一应用实例只有一个快投屏图标；点击模拟器关闭按钮后会话、UxPlay 与窗口均被回收 |
-| AT-025 | macOS 授权蓝牙后启用 iOS 控制 | CoreBluetooth 服务发布和广播成功；iPhone 设置→蓝牙可发现并连接面板提示的实际条目（macOS 可能显示宿主电脑 GAP 名称，原始 BLE 广播短名为 `快投`），连接后键盘报告可用；开启 AssistiveTouch 后鼠标指针和点击可用 |
-| AT-026 | iOS USB/WDA 绝对坐标（实验） | 用户已在真机安装/信任并运行 WDA，面板开启 USB/WDA；USB 隧道和 WDA session 建立，画布四角与中心点击落在对应系统坐标，拖动不因视频掉帧错位；状态明确显示 `usb_wda` |
-| AT-027 | USB/WDA 不可用时回退 | 关闭 WDA、拔出 USB 或缺少 iproxy 时，控制启动不失败；日志记录 `ios_usb_fallback`，状态显示 BLE/等待 BLE，不伪造 USB 已就绪 |
+| AT-025 | macOS 授权蓝牙后启用 iOS 控制 | CoreBluetooth 服务发布和广播成功；iPhone 设置→蓝牙可发现并连接面板提示的实际条目（macOS 可能显示宿主电脑 GAP 名称，原始 BLE 广播短名为 `KTP`），连接后键盘报告可用；开启 AssistiveTouch 后鼠标指针和点击可用 |
+| AT-026 | iOS USB/WDA 绝对坐标（实验） | 发布包内含与目标设备匹配的签名 IPA、`ideviceinstaller`、`go-ios` 和 Windows 所需 DLL；用户点击准备后应用完成安装、启动和 `/status` 校验，USB/WDA session 建立，画布四角与中心点击落在对应系统坐标，拖动不因视频掉帧错位；状态明确显示 `usb_wda` |
+| AT-027 | USB/WDA 精确模式依赖缺失 | 开启 USB/WDA 后签名 IPA、安装器、启动器、USB 信任或设备服务任一缺失时，控制启动失败并显示可操作原因；日志记录 `ios_usb_required`，状态不伪造 `usb_wda`，用户关闭该开关后才可明确选择 BLE |
+| AT-028 | iOS USB/WDA 混合文本粘贴 | WDA 控制已显示 `usb_wda`，手机上的可编辑控件已获得焦点；工具栏粘贴与画布 Ctrl/Cmd+V 均能完整发送中英文、标点和 Emoji，不产生 `unencodable_chars`；WDA 不可用时明确提示切换 USB/WDA |
+| AT-029 | macOS iOS BLE 旧 GATT 缓存恢复 | 停止并重新发布固定 GATT 表、重新开始广播后，iPhone 能重新发现并进入 `control_connected`；仍失败时 UI 给出“忽略对应 Mac 配对记录后重试”的明确引导 |
 
 ## 11. 交付阶段（v1.2 更新）
 
+- 构建分为两个明确变体：BLE 兼容版使用 `pnpm tauri:build` 或
+  `pnpm tauri:build:ble`，不要求 WDA 资源，iOS 输入走 BLE；WDA 精准版使用
+  `pnpm tauri:build:wda`（`pnpm tauri:build:release` 为兼容别名），强制检查签名
+  IPA、`ideviceinstaller`、`go-ios` 和对应宿主 DLL。macOS DMG 分别使用
+  `pnpm tauri:build:dmg` 与 `pnpm tauri:build:dmg:wda`。两种版本都必须明确显示当前
+  实际输入通道，不能把 BLE 状态伪装成 `usb_wda`。
 - macOS DMG 默认使用 Tauri `bundle.macOS.signingIdentity: "-"` 对 App 及其内置组件进行 ad-hoc
   （本地自签名）代码签名，并由 `scripts/sign-macos-dmg.mjs` 对最终 DMG 文件本身签名；不在仓库
   提交证书或私钥。若发布机配置了合法签名身份，可由 `APPLE_SIGNING_IDENTITY` 覆盖；未公证的
@@ -299,7 +324,7 @@ interface IosControlCapability {
   多设备并发（≥2）为 P1 优先完成。
 - V1：多设备并发、音频/录制、已配对管理、更新器。
 - P1：USB + WDA iOS 绝对坐标实验通道（需分别在 Windows/macOS、实际 Apple USB
-  驱动/iproxy、WDA 与真机组合完成 AT-026/027 后再标记支持）。
+  驱动、安装器、go-ios、签名 IPA 与真机组合完成 AT-026/027 后再标记支持）。
 
 > 历史：v1.0（Windows→iPhone 单链）、v1.1（iOS/Android→Windows/macOS 双宿主）
 > 归档于 `doc/spec/archive/`。

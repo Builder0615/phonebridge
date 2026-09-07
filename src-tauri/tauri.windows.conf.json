@@ -4,7 +4,8 @@
       "binaries/scrcpy-server",
       "binaries/VERSION",
       "binaries/gstreamer",
-      "binaries/licenses"
+      "binaries/licenses",
+      "binaries/ios-usb"
     ]
   }
 }

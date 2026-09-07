@@ -12,6 +12,7 @@ pub mod frame_bridge;
 pub mod hid_adapter;
 pub mod hid_report;
 pub mod ios_usb_control;
+pub mod ios_wda_setup;
 #[cfg(target_os = "macos")]
 pub mod macos_hid;
 pub mod mirror_adapter;

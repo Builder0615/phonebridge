@@ -5,7 +5,8 @@
       "binaries/VERSION",
       "binaries/gstreamer",
       "binaries/licenses",
-      "binaries/uxplay-agent.app"
+      "binaries/uxplay-agent.app",
+      "binaries/ios-usb"
     ],
     "externalBin": [
       "binaries/adb",

@@ -1,5 +1,5 @@
 /* global console */
-// prepare-sidecars.mjs —— 把运行时依赖（adb / scrcpy / UxPlay）收集进 src-tauri/binaries/
+// prepare-sidecars.mjs —— 把运行时依赖（adb / scrcpy / UxPlay / iOS WDA）收集进 src-tauri/binaries/
 // 作为 app 内置 sidecar（Spec v1.2、AGENTS.md「binaries/ 仅存放经校验的构建物」）。
 //
 // 策略（显式命令，不静默下载）：
@@ -16,7 +16,8 @@
 //   src-tauri/binaries/sidecars.json  （来源/版本/SHA-256/许可证记录）
 //   src-tauri/binaries/README.md      （策略说明）
 //
-// 用法：node scripts/prepare-sidecars.mjs   （可加 --download 允许从官方源下载）
+// 用法：node scripts/prepare-sidecars.mjs   （可加 --download 允许从官方源下载；
+//        发布构建加 --require-wda，强制要求签名 WDA IPA）
 
 import { execFileSync, spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -32,7 +33,7 @@ import {
   unlinkSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
-import { join, dirname } from "node:path"
+import { join, dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import process from "node:process"
 const { platform } = process
@@ -42,6 +43,7 @@ const root = join(here, "..")
 const bins = join(root, "src-tauri", "binaries")
 const iosUsbBins = join(bins, "ios-usb")
 const allowDownload = process.argv.includes("--download")
+const requireWda = process.argv.includes("--require-wda") || process.env.PHONEBRIDGE_REQUIRE_WDA === "1" || process.env.PHONEBRIDGE_REQUIRE_WDA === "true"
 
 const UXPLAY_VERSION = "1.73.6"
 const UXPLAY_SOURCE_URL = "https://github.com/FDH2/UxPlay"
@@ -190,6 +192,21 @@ function toolVersion(name, displayName) {
   if (displayName === "adb") return sh(exe("adb"), ["version"])?.split("\n")[0] ?? "unknown"
   if (displayName === "scrcpy") return sh(exe("scrcpy"), ["--version"])?.split("\n")[0] ?? "unknown"
   return "unknown"
+}
+
+function copyWindowsSiblingDlls(src) {
+  if (platform !== "win32") return []
+  const sourceDir = dirname(src)
+  const copied = []
+  for (const entry of readdirSync(sourceDir)) {
+    if (!entry.toLowerCase().endsWith(".dll")) continue
+    const from = join(sourceDir, entry)
+    const to = join(iosUsbBins, entry)
+    if (!statSync(from).isFile()) continue
+    if (resolve(from) !== resolve(to)) copyFileSync(from, to)
+    copied.push(`src-tauri/binaries/ios-usb/${entry}`)
+  }
+  return copied
 }
 
 // UxPlay 是 GPLv3 独立进程：只接受已经放入 binaries/ 的审计构建物，
@@ -501,26 +518,38 @@ function collectOptionalIosUsbTool(name, recordName, envVar, license, sourceUrl)
     : (existsSync(dst) ? dst : null)
 
   if (!src || !existsSync(src)) {
+    if (requireWda && (name === "ideviceinstaller" || name === "ios")) {
+      throw new Error(`发布构建要求内置 ${name}${platform === "win32" ? ".exe" : ""}；请设置 ${envVar}`)
+    }
     console.log(`[info] 可选 iOS USB/WDA 工具 ${name} 未收集；需要时设置 ${envVar} 或放入 ${dst}`)
     return
   }
   if (!statSync(src).isFile()) {
+    if (requireWda && (name === "ideviceinstaller" || name === "ios")) {
+      throw new Error(`${envVar} 不是有效文件：${src}`)
+    }
     console.warn(`[warn] ${envVar} 不是文件，跳过 ${name}`)
     return
   }
   if (!isHostCompatibleExecutable(src)) {
+    if (requireWda && (name === "ideviceinstaller" || name === "ios")) {
+      throw new Error(`${name}（${src}）不包含当前宿主架构 ${hostArchitecture()}`)
+    }
     console.warn(`[warn] ${name}（${src}）不包含当前宿主架构 ${hostArchitecture()}，跳过内置`)
     return
   }
-  if (src !== dst) copyFileSync(src, dst)
+  const samePath = resolve(src) === resolve(dst)
+  if (!samePath) copyFileSync(src, dst)
+  const windowsDependencies = copyWindowsSiblingDlls(src)
   chmodSync(dst, 0o755)
   thinToHostArchitecture(dst)
   record[recordName] = {
-    source: src === dst ? "bundled" : "explicit-path",
+    source: samePath ? "bundled" : "explicit-path",
     sourceUrl,
     path: `src-tauri/binaries/ios-usb/${exe(name)}`,
     version: sh(dst, ["--version"]) || "unknown",
     sha256: sha256File(dst),
+    ...(windowsDependencies.length > 0 ? { windowsDependencies } : {}),
     license,
     packaging: "可选资源；Windows 依赖同目录 DLL 与 Apple Mobile Device/usbmux 传输服务",
     distributionConclusion: "发布前须随包提供对应许可证、来源、源码获取信息和完整依赖清单。",
@@ -543,6 +572,78 @@ function collectIosUsbTools() {
     "LGPL-2.1-or-later",
     "https://github.com/libimobiledevice/libimobiledevice",
   )
+  collectOptionalIosUsbTool(
+    "ideviceinstaller",
+    "ideviceInstaller",
+    "PHONEBRIDGE_IDEVICEINSTALLER_PATH",
+    "GPL-2.0-or-later",
+    "https://github.com/libimobiledevice/ideviceinstaller",
+  )
+  collectOptionalIosUsbTool(
+    "ios",
+    "goIos",
+    "PHONEBRIDGE_GO_IOS_PATH",
+    "MIT",
+    "https://github.com/danielpaulus/go-ios",
+  )
+  collectSignedWdaArtifact()
+}
+
+// A signed WDA runner is device/provisioning-profile material, not something
+// the build can safely download from a public source.  Release CI must receive
+// it explicitly and records its digest so the desktop app can install exactly
+// the audited artifact on both macOS and Windows.
+function collectSignedWdaArtifact() {
+  const dst = join(iosUsbBins, "WebDriverAgentRunner.ipa")
+  const manifestPath = join(iosUsbBins, "WebDriverAgentRunner.json")
+  const configured = process.env.PHONEBRIDGE_WDA_IPA_PATH
+  const src = configured || (existsSync(dst) ? dst : null)
+  if (!src || !existsSync(src)) {
+    if (requireWda) {
+      throw new Error("发布构建要求内置签名 WDA IPA；请设置 PHONEBRIDGE_WDA_IPA_PATH")
+    }
+    console.log(`[info] 未收集签名 WDA IPA；发布构建请设置 PHONEBRIDGE_WDA_IPA_PATH`)
+    return
+  }
+  if (!statSync(src).isFile() || !src.toLowerCase().endsWith(".ipa")) {
+    if (requireWda) {
+      throw new Error(`PHONEBRIDGE_WDA_IPA_PATH 不是有效的 .ipa 文件：${src}`)
+    }
+    console.warn(`[warn] PHONEBRIDGE_WDA_IPA_PATH 不是 .ipa 文件，跳过：${src}`)
+    return
+  }
+  const samePath = resolve(src) === resolve(dst)
+  if (!samePath) copyFileSync(src, dst)
+  const bundleId = (process.env.PHONEBRIDGE_WDA_BUNDLE_ID || "com.facebook.WebDriverAgentRunner.xctrunner").trim()
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/.test(bundleId)) {
+    throw new Error(`PHONEBRIDGE_WDA_BUNDLE_ID 格式无效：${bundleId}`)
+  }
+  writeFileSync(
+    manifestPath,
+    JSON.stringify(
+      {
+        artifact: "WebDriverAgentRunner.ipa",
+        bundleId,
+        source: "appium/WebDriverAgent",
+        note: "由发布方提供的已签名 WDA runner；运行时由应用安装并通过 go-ios 启动。",
+      },
+      null,
+      2,
+    ),
+  )
+  record.wda = {
+    source: samePath ? "bundled" : "explicit-path",
+    sourceUrl: "https://github.com/appium/WebDriverAgent",
+    artifact: "WebDriverAgentRunner.ipa",
+    path: "src-tauri/binaries/ios-usb/WebDriverAgentRunner.ipa",
+    manifest: "src-tauri/binaries/ios-usb/WebDriverAgentRunner.json",
+    bundleId,
+    sha256: sha256File(dst),
+    license: "BSD-3-Clause (upstream WDA; verify the signed artifact provenance)",
+    packaging: "签名/Provisioning Profile 由发布方提供；应用运行时只安装和启动，不生成或绕过 Apple 签名",
+    distributionConclusion: "仅向已授权设备分发；不要把开发者私钥、p12 或 mobileprovision 私密材料放入仓库。",
+  }
+  console.log(`[ok] 签名 WDA IPA 已内置（${dst}，SHA-256 ${record.wda.sha256.slice(0, 16)}…）`)
 }
 
 // ---------------------------------------------------------------------------
@@ -565,6 +666,15 @@ if (existsSync(oldPath)) {
       if (!(k in record)) record[k] = v
     }
   } catch { /* 旧文件损坏则忽略 */ }
+}
+// Do not preserve a stale WDA manifest/digest after the IPA was removed from
+// the current build input.  A sidecars record must never claim that an absent
+// signed artifact is bundled.
+const bundledWda = join(iosUsbBins, "WebDriverAgentRunner.ipa")
+if (!existsSync(bundledWda)) {
+  delete record.wda
+  const staleWdaManifest = join(iosUsbBins, "WebDriverAgentRunner.json")
+  if (existsSync(staleWdaManifest)) unlinkSync(staleWdaManifest)
 }
 writeFileSync(join(bins, "sidecars.json"), JSON.stringify(record, null, 2))
 console.log(`\nsidecars.json 已更新：${Object.keys(record).join(", ") || "（空）"}`)

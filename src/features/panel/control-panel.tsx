@@ -316,11 +316,9 @@ export function ControlPanel() {
                         {pairingUsesHostName && `（macOS 系统列表使用本机名称；BLE 广播短名为「${advertisedName}」）`}
                       </p>
                     ) : controlReady && isStreaming ? (
-                      <p className={cn("basis-full pl-8 text-xs", mouseInputReady && session?.hid.assistiveTouchHint ? "text-warning" : "text-success")}>
+                      <p className="basis-full pl-8 text-xs text-success">
                         iOS {keyboardInputReady ? "键盘" : "键盘报告未订阅"}{keyboardInputReady && mouseInputReady ? "、" : ""}{mouseInputReady ? "鼠标 BLE 报告" : "鼠标报告未订阅"}已连接；
-                        {mouseInputReady && session?.hid.assistiveTouchHint
-                          ? "请在 iPhone 设置 → 辅助功能 → 触控 → 辅助触控中开启，并在辅助触控 → 设备 → 蓝牙设备中选择该 Mac"
-                          : "模拟器窗口聚焦后即可操作"}
+                        模拟器窗口聚焦后即可操作
                       </p>
                     ) : control === "disabled" && isStreaming ? (
                       session?.hid.poweredOn && session.hid.advertising ? (

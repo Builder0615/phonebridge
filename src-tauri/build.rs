@@ -4,7 +4,35 @@ fn main() {
     println!("cargo:rerun-if-changed=src/integrations/macos_hid.m");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         build_macos_hid_bridge();
+        embed_macos_debug_info_plist();
     }
+}
+
+/// `tauri dev` launches `target/debug/phonebridge` directly instead of an
+/// `.app` bundle. Embed the same Bluetooth usage metadata in that debug
+/// executable so CoreBluetooth/TCC sees the intended application identity
+/// during real-device development tests. Release bundles still receive the
+/// normal Info.plist and entitlements from tauri.conf.json.
+fn embed_macos_debug_info_plist() {
+    if std::env::var("PROFILE").as_deref() != Ok("debug") {
+        return;
+    }
+
+    use std::path::PathBuf;
+
+    let manifest_dir = PathBuf::from(
+        std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR 未设置"),
+    );
+    let info_plist = manifest_dir.join("Info.plist");
+    println!("cargo:rerun-if-changed={}", info_plist.display());
+    for argument in [
+        "-sectcreate",
+        "__TEXT",
+        "__info_plist",
+    ] {
+        println!("cargo:rustc-link-arg-bin=phonebridge={argument}");
+    }
+    println!("cargo:rustc-link-arg-bin=phonebridge={}", info_plist.display());
 }
 
 /// Compile the small CoreBluetooth bridge as Objective-C on the macOS target.

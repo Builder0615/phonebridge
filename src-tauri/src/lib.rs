@@ -90,6 +90,8 @@ pub fn run() {
             commands::frame::frame_status,
             commands::usb::list_usb_devices_cmd,
             commands::usb::get_ios_control_capability,
+            commands::usb::inspect_ios_wda,
+            commands::usb::prepare_ios_wda,
             commands::log::get_app_logs,
             commands::log::report_frontend_error,
         ])
@@ -105,6 +107,7 @@ pub fn run() {
             tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
         ) {
             app.state::<SessionRegistry>().stop_all();
+            crate::integrations::ios_wda_setup::stop_all();
         }
     });
 }

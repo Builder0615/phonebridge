@@ -325,7 +325,7 @@ export interface SessionPreferences {
   maxPasteBytes: number
   /** iOS BLE 相对鼠标的宿主侧速度倍率；Android 不使用。 */
   iosPointerScale: number
-  /** 使用 USB + WDA 的 iOS 绝对坐标通道；不可用时回退 BLE。 */
+  /** 使用 USB + WDA 的 iOS 绝对坐标通道；不可用时不静默回退 BLE。 */
   iosUsbControlEnabled: boolean
 }
 

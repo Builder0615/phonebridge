@@ -58,22 +58,13 @@ static void PBPerformOnMainQueueSync(dispatch_block_t block) {
     }
 }
 
-static NSString *PBUUID(NSString *value) {
-    // macOS CoreBluetooth rejects the short form for several system services,
-    // including HID.  The canonical Bluetooth base UUID is still recognized by
-    // iOS as the corresponding SIG service.
-    return value;
-}
-
 static NSData *PBData(const uint8_t *bytes, NSUInteger length) {
     return [NSData dataWithBytes:bytes length:length];
 }
 
-// A full 128-bit HID service consumes 18 bytes in the legacy service-data
-// field. CoreBluetooth reserves only 28 bytes for the foreground advertisement
-// payload, so keep the local name at most 8 UTF-8 bytes (18 + 2 bytes of the
-// local-name AD header + 8 = 28). An overlong name may push the HID UUID into
-// the overflow area, which the iOS Settings app does not actively scan.
+// Keep the local name short and ASCII. CoreBluetooth has a small foreground
+// advertisement budget, and iOS Settings is less tolerant of a name that is
+// truncated or moved to the scan-response/overflow data.
 static NSString *PBCompactLocalName(NSString *name) {
     NSString *candidate = name.length > 0 ? name : @"KTP";
     NSData *utf8 = [candidate dataUsingEncoding:NSUTF8StringEncoding];
@@ -81,9 +72,7 @@ static NSString *PBCompactLocalName(NSString *name) {
         return candidate;
     }
 
-    // Never cut through a UTF-8 code point. For 快投屏 (9 bytes), this
-    // intentionally produces 快投 (6 bytes), leaving the HID UUID in the
-    // primary advertisement packet.
+    // Never cut through a UTF-8 code point if a caller supplies a longer name.
     for (NSUInteger length = 8; length > 0; length--) {
         NSString *prefix = [[NSString alloc] initWithBytes:utf8.bytes
                                                      length:length
@@ -161,10 +150,10 @@ _Static_assert(sizeof(kPhoneBridgeReportMap) == 239, "HOGP report map must be 23
     BOOL _wanted;
     BOOL _advertising;
     BOOL _servicesReady;
-
     CBUUID *_batteryServiceUUID;
     CBUUID *_deviceInfoServiceUUID;
     CBUUID *_hidServiceUUID;
+    CBUUID *_advertisedHidServiceUUID;
     CBUUID *_batteryLevelUUID;
     CBUUID *_manufacturerNameUUID;
     CBUUID *_modelNumberUUID;
@@ -240,23 +229,28 @@ _Static_assert(sizeof(kPhoneBridgeReportMap) == 239, "HOGP report map must be 23
     _centrals = [NSMutableDictionary dictionary];
     _subscriptions = [NSMutableDictionary dictionary];
 
-    _batteryServiceUUID = [CBUUID UUIDWithString:PBUUID(@"0000180F-0000-1000-8000-00805F9B34FB")];
-    _deviceInfoServiceUUID = [CBUUID UUIDWithString:PBUUID(@"0000180A-0000-1000-8000-00805F9B34FB")];
-    _hidServiceUUID = [CBUUID UUIDWithString:PBUUID(@"00001812-0000-1000-8000-00805F9B34FB")];
-    _batteryLevelUUID = [CBUUID UUIDWithString:PBUUID(@"00002A19-0000-1000-8000-00805F9B34FB")];
-    _manufacturerNameUUID = [CBUUID UUIDWithString:PBUUID(@"00002A29-0000-1000-8000-00805F9B34FB")];
-    _modelNumberUUID = [CBUUID UUIDWithString:PBUUID(@"00002A24-0000-1000-8000-00805F9B34FB")];
-    _pnpIDUUID = [CBUUID UUIDWithString:PBUUID(@"00002A50-0000-1000-8000-00805F9B34FB")];
-    _hidInformationUUID = [CBUUID UUIDWithString:PBUUID(@"00002A4A-0000-1000-8000-00805F9B34FB")];
-    _reportMapUUID = [CBUUID UUIDWithString:PBUUID(@"00002A4B-0000-1000-8000-00805F9B34FB")];
-    _hidControlPointUUID = [CBUUID UUIDWithString:PBUUID(@"00002A4C-0000-1000-8000-00805F9B34FB")];
-    _protocolModeUUID = [CBUUID UUIDWithString:PBUUID(@"00002A4E-0000-1000-8000-00805F9B34FB")];
-    _reportUUID = [CBUUID UUIDWithString:PBUUID(@"00002A4D-0000-1000-8000-00805F9B34FB")];
-    _bootMouseInputUUID = [CBUUID UUIDWithString:PBUUID(@"00002A33-0000-1000-8000-00805F9B34FB")];
-    _bootKeyboardInputUUID = [CBUUID UUIDWithString:PBUUID(@"00002A22-0000-1000-8000-00805F9B34FB")];
-    _bootKeyboardOutputUUID = [CBUUID UUIDWithString:PBUUID(@"00002A32-0000-1000-8000-00805F9B34FB")];
-    _reportReferenceUUID = [CBUUID UUIDWithString:PBUUID(@"00002908-0000-1000-8000-00805F9B34FB")];
-    _externalReportReferenceUUID = [CBUUID UUIDWithString:PBUUID(@"00002907-0000-1000-8000-00805F9B34FB")];
+    // macOS's peripheral-role GATT publisher rejects the compact SIG form for
+    // this service table with CBErrorUUIDNotAllowed (8). Keep the published
+    // GATT UUIDs canonical, and use a separate compact UUID only in the
+    // advertisement payload where it saves space.
+    _batteryServiceUUID = [CBUUID UUIDWithString:@"0000180F-0000-1000-8000-00805F9B34FB"];
+    _deviceInfoServiceUUID = [CBUUID UUIDWithString:@"0000180A-0000-1000-8000-00805F9B34FB"];
+    _hidServiceUUID = [CBUUID UUIDWithString:@"00001812-0000-1000-8000-00805F9B34FB"];
+    _advertisedHidServiceUUID = [CBUUID UUIDWithString:@"1812"];
+    _batteryLevelUUID = [CBUUID UUIDWithString:@"00002A19-0000-1000-8000-00805F9B34FB"];
+    _manufacturerNameUUID = [CBUUID UUIDWithString:@"00002A29-0000-1000-8000-00805F9B34FB"];
+    _modelNumberUUID = [CBUUID UUIDWithString:@"00002A24-0000-1000-8000-00805F9B34FB"];
+    _pnpIDUUID = [CBUUID UUIDWithString:@"00002A50-0000-1000-8000-00805F9B34FB"];
+    _hidInformationUUID = [CBUUID UUIDWithString:@"00002A4A-0000-1000-8000-00805F9B34FB"];
+    _reportMapUUID = [CBUUID UUIDWithString:@"00002A4B-0000-1000-8000-00805F9B34FB"];
+    _hidControlPointUUID = [CBUUID UUIDWithString:@"00002A4C-0000-1000-8000-00805F9B34FB"];
+    _protocolModeUUID = [CBUUID UUIDWithString:@"00002A4E-0000-1000-8000-00805F9B34FB"];
+    _reportUUID = [CBUUID UUIDWithString:@"00002A4D-0000-1000-8000-00805F9B34FB"];
+    _bootMouseInputUUID = [CBUUID UUIDWithString:@"00002A33-0000-1000-8000-00805F9B34FB"];
+    _bootKeyboardInputUUID = [CBUUID UUIDWithString:@"00002A22-0000-1000-8000-00805F9B34FB"];
+    _bootKeyboardOutputUUID = [CBUUID UUIDWithString:@"00002A32-0000-1000-8000-00805F9B34FB"];
+    _reportReferenceUUID = [CBUUID UUIDWithString:@"00002908-0000-1000-8000-00805F9B34FB"];
+    _externalReportReferenceUUID = [CBUUID UUIDWithString:@"00002907-0000-1000-8000-00805F9B34FB"];
 
     uint8_t zeroMouse[] = {0, 0, 0, 0};
     uint8_t zeroKeyboard[] = {0, 0, 0, 0, 0, 0, 0, 0};
@@ -406,9 +400,6 @@ _Static_assert(sizeof(kPhoneBridgeReportMap) == 239, "HOGP report map must be 23
            properties:(CBCharacteristicPropertyRead | CBCharacteristicPropertyNotifyEncryptionRequired)
                 value:nil
           permissions:CBAttributePermissionsReadEncryptionRequired];
-    _batteryLevel.descriptors = @[[[CBMutableDescriptor alloc]
-        initWithType:_reportReferenceUUID
-               value:PBData((const uint8_t[]){4, 1}, 2)]];
     service.characteristics = @[_batteryLevel];
     [self rememberCharacteristic:_batteryLevel];
     return service;
@@ -449,9 +440,9 @@ _Static_assert(sizeof(kPhoneBridgeReportMap) == 239, "HOGP report map must be 23
 
     CBMutableCharacteristic *controlPoint = [[CBMutableCharacteristic alloc]
         initWithType:_hidControlPointUUID
-           properties:CBCharacteristicPropertyRead
+           properties:CBCharacteristicPropertyWriteWithoutResponse
                 value:nil
-          permissions:CBAttributePermissionsReadEncryptionRequired];
+          permissions:CBAttributePermissionsWriteEncryptionRequired];
     CBMutableCharacteristic *protocolMode = [[CBMutableCharacteristic alloc]
         initWithType:_protocolModeUUID
            properties:(CBCharacteristicPropertyRead | CBCharacteristicPropertyWriteWithoutResponse)
@@ -468,12 +459,12 @@ _Static_assert(sizeof(kPhoneBridgeReportMap) == 239, "HOGP report map must be 23
         initWithType:_bootMouseInputUUID
            properties:(CBCharacteristicPropertyRead | CBCharacteristicPropertyNotifyEncryptionRequired)
                 value:nil
-          permissions:(CBAttributePermissionsReadEncryptionRequired | CBAttributePermissionsWriteEncryptionRequired)];
+          permissions:CBAttributePermissionsReadEncryptionRequired];
     _bootKeyboardInput = [[CBMutableCharacteristic alloc]
         initWithType:_bootKeyboardInputUUID
            properties:(CBCharacteristicPropertyRead | CBCharacteristicPropertyNotifyEncryptionRequired)
                 value:nil
-          permissions:(CBAttributePermissionsReadEncryptionRequired | CBAttributePermissionsWriteEncryptionRequired)];
+          permissions:CBAttributePermissionsReadEncryptionRequired];
     CBMutableCharacteristic *bootKeyboardOutput = [[CBMutableCharacteristic alloc]
         initWithType:_bootKeyboardOutputUUID
            properties:(CBCharacteristicPropertyRead | CBCharacteristicPropertyWriteWithoutResponse | CBCharacteristicPropertyWrite)
@@ -541,7 +532,7 @@ _Static_assert(sizeof(kPhoneBridgeReportMap) == 239, "HOGP report map must be 23
     }
     [_manager startAdvertising:@{
         CBAdvertisementDataLocalNameKey : _localName ?: @"KTP",
-        CBAdvertisementDataServiceUUIDsKey : @[_hidServiceUUID]
+        CBAdvertisementDataServiceUUIDsKey : @[_advertisedHidServiceUUID]
     }];
 }
 
@@ -628,14 +619,22 @@ _Static_assert(sizeof(kPhoneBridgeReportMap) == 239, "HOGP report map must be 23
             queue = [NSMutableArray array];
             _pendingReports[key] = queue;
         }
-        // Keep a bounded FIFO. Keyboard reports must retain their order;
-        // dropping the oldest item is preferable to allowing a stalled BLE
-        // central to grow an unbounded queue. ReleaseAll is sent on every
-        // focus/disconnect path, so the next input sequence can recover.
-        if (queue.count >= 64) {
-            [queue removeObjectAtIndex:0];
+        // Mouse motion is disposable state: if CoreBluetooth is back-pressured,
+        // sending old deltas later makes the phone cursor visibly lag and then
+        // overshoot. Keep only the newest complete mouse report (including the
+        // current button bits). Keyboard reports remain an ordered FIFO.
+        if (characteristic == _mouseReport || characteristic == _bootMouseInput) {
+            [queue removeAllObjects];
+            [queue addObject:data];
+        } else {
+            // Keep a bounded FIFO for keyboard/output reports. Dropping the
+            // oldest item is preferable to allowing a stalled BLE central to
+            // grow an unbounded queue.
+            if (queue.count >= 64) {
+                [queue removeObjectAtIndex:0];
+            }
+            [queue addObject:data];
         }
-        [queue addObject:data];
     }
     // YES means that at least one central subscribed to this characteristic;
     // the value may have been queued when CoreBluetooth back-pressured us.
@@ -687,10 +686,15 @@ _Static_assert(sizeof(kPhoneBridgeReportMap) == 239, "HOGP report map must be 23
     }
     _cachedReports[@(reportID)] = data;
     BOOL delivered = NO;
+    // A HOGP central may subscribe to both the Report and Boot Mouse Input
+    // characteristics while negotiating protocol mode. They describe the
+    // same physical mouse, so notifying both would make one host movement
+    // arrive twice (large cursor offset and unnecessary BLE traffic). Prefer
+    // the normal Report characteristic and use the Boot characteristic only
+    // when the normal one is not subscribed.
     if ([self hasSubscribersForCharacteristic:report]) {
         delivered = [self updateData:data forCharacteristic:report] || delivered;
-    }
-    if (reportID == 1 && _bootMouseInput) {
+    } else if (reportID == 1 && _bootMouseInput) {
         if ([self hasSubscribersForCharacteristic:_bootMouseInput]) {
             delivered = [self updateData:[self bootMouseData]
                         forCharacteristic:_bootMouseInput] || delivered;
@@ -794,6 +798,7 @@ _Static_assert(sizeof(kPhoneBridgeReportMap) == 239, "HOGP report map must be 23
         [_reportsByID removeAllObjects];
         [_characteristicsByKey removeAllObjects];
         [_pendingReports removeAllObjects];
+        [_manager removeAllServices];
     }
     [self emitStatus:0];
 }

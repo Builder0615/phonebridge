@@ -1,17 +1,17 @@
 {
   "adb": {
     "source": "system",
-    "path": "system: Android SDK Platform-Tools/adb",
+    "path": "/Users/xxx/Library/Android/sdk/platform-tools/adb",
     "version": "Android Debug Bridge version 1.0.41"
   },
   "scrcpy": {
     "source": "system",
-    "path": "system: scrcpy",
+    "path": "/opt/homebrew/bin/scrcpy",
     "version": "unknown"
   },
   "scrcpyServer": {
     "source": "system",
-    "path": "system: scrcpy-server",
+    "path": "/opt/homebrew/share/scrcpy/scrcpy-server",
     "version": "scrcpy-server 4.0 (must match host protocol)",
     "sha256": "84924bd564a1eb6089c872c7521f968058977f91f5ff02514a8c74aff3210f3a"
   },

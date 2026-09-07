@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleIdentifier</key>
+	<string>com.phonebridge.desktop</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>快投屏需要蓝牙来向已连接的 iPhone 提供键盘和鼠标输入。</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>

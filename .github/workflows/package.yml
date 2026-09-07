@@ -1,4 +1,4 @@
-name: Package desktop installers
+name: Build and publish desktop installers
 
 on:
   workflow_dispatch:
@@ -131,16 +131,16 @@ jobs:
           else
             node scripts/bundle-uxplay-runtime.mjs
           fi
-          node scripts/prepare-sidecars.mjs --download
+          pnpm sidecars:ble
 
       - name: Prepare Windows sidecars
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
-          pnpm sidecars:download
+          pnpm sidecars:ble
           node scripts/bundle-uxplay-runtime.mjs
 
-      - name: Build signed macOS DMG
+      - name: Build BLE-compatible macOS DMG
         if: matrix.platform == 'macos'
         shell: bash
         run: |
@@ -148,7 +148,7 @@ jobs:
           CI=true pnpm exec tauri build --target "$TAURI_TARGET" --bundles dmg
           TAURI_TARGET="$TAURI_TARGET" node scripts/sign-macos-dmg.mjs
 
-      - name: Build Windows installers
+      - name: Build BLE-compatible Windows installers
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
@@ -203,6 +203,29 @@ jobs:
           path: release-artifacts
           merge-multiple: true
 
+      - name: Create or verify release tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          tag="v${RELEASE_VERSION}"
+          expected_sha="${GITHUB_SHA}"
+          tag_sha=""
+          if tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" --jq '.object.sha' 2>/dev/null)"; then
+            if [[ "$tag_sha" != "$expected_sha" ]]; then
+              echo "标签 ${tag} 已存在，但指向 ${tag_sha}，预期 ${expected_sha}；为避免覆盖已有版本而停止。" >&2
+              exit 1
+            fi
+            echo "标签 ${tag} 已存在且指向本次构建提交 ${expected_sha}。"
+          else
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f "ref=refs/tags/${tag}" \
+              -f "sha=${expected_sha}" >/dev/null
+            echo "已创建标签 ${tag} -> ${expected_sha}。"
+          fi
+
       - name: Create or update release
         shell: bash
         env:
@@ -222,5 +245,5 @@ jobs:
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$tag" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
           else
-            gh release create "$tag" "${files[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "快投屏 ${RELEASE_VERSION}" --generate-notes
+            gh release create "$tag" "${files[@]}" --repo "$GITHUB_REPOSITORY" --title "快投屏 ${RELEASE_VERSION}" --generate-notes
           fi

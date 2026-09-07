@@ -16,18 +16,24 @@
   （GPL-3.0-or-later），Windows 使用固定来源的 Windows 静态构建；不使用浮动下载
   地址，也不把 Intel-only 文件误命名成 arm64。
 - `sidecars.json`：来源 / 版本 / SHA-256 记录（诊断页与审计用）
-- `ios-usb/`（可选）：经过审计的跨平台 `iproxy[.exe]`、`idevice_id[.exe]` 及其
-  Windows DLL；用于用户已安装/信任/运行的 WDA 绝对坐标控制，不自动安装 WDA。
-  `iproxy` 工具为 GPL-2.0-or-later，`idevice_id` 为 LGPL-2.1-or-later，发布时
-  必须分别提供许可证和源码获取信息。
+- `ios-usb/`：WDA 精准版发布包应包含发布方签名的 `WebDriverAgentRunner.ipa`、
+  `ideviceinstaller[.exe]`、`ios[.exe]`（go-ios）及其 Windows DLL；应用会在用户点击
+  后自动安装、启动和校验 WDA。`iproxy[.exe]`、`idevice_id[.exe]` 仍用于 macOS
+  开发回退和设备诊断。WDA 的签名包不从公开源下载，私钥/p12/profile 不进仓库。
+  `iproxy` 为 GPL-2.0-or-later，`idevice_id` 为 LGPL-2.1-or-later，`ideviceinstaller`
+  为 GPL-2.0-or-later，`go-ios` 为 MIT；发布时必须分别提供许可证、源码获取信息和
+  SHA-256 记录。
 
 ## 收集机制
 
 ```bash
 pnpm sidecars          # 从系统定位并复制 adb / scrcpy / scrcpy-server，并校验 UxPlay
 pnpm sidecars:download # 系统缺失时从固定来源下载（固定版本 + SHA-256 记录）
+pnpm sidecars:ble      # BLE 兼容版：下载并收集基础 sidecar，不要求 WDA
+pnpm sidecars:release  # WDA 精准版：同上，并强制要求签名 WDA IPA 已注入
 pnpm sidecars:uxplay   # 使用当前构建平台的 GStreamer 重建/校验 UxPlay runtime
-pnpm tauri:build       # sidecars 收集 → 前端构建 → tauri build（externalBin 打进安装包）
+pnpm tauri:build       # BLE 兼容版：sidecars 收集 → 前端构建 → tauri build
+pnpm tauri:build:wda   # WDA 精准版：额外强制检查 WDA IPA 和宿主工具
 ```
 
 - 查找顺序（Rust 运行时）：应用内置（resource_dir/binaries、resource_dir、
@@ -37,8 +43,8 @@ pnpm tauri:build       # sidecars 收集 → 前端构建 → tauri build（exte
   `scrcpy-server`、UxPlay 的 `VERSION`、目标平台 GStreamer runtime 和许可证通过
   `bundle.resources` 随应用分发。Windows 构建必须在打包前准备 `uxplay.exe` 和
   匹配的 Windows GStreamer runtime，运行时不要求用户另装 GStreamer。可选
-  `ios-usb/` 也随资源目录进入应用；若启用 USB/WDA 精确控制，需把已审计的
-  `iproxy.exe`、`idevice_id.exe` 及依赖 DLL 放入该目录。
+  `ios-usb/` 也随资源目录进入应用；只有 WDA 精准版发布需把签名 WDA IPA、
+  `ideviceinstaller.exe`、`ios.exe`、`iproxy.exe`、`idevice_id.exe` 及依赖 DLL 放入该目录。
 - UxPlay 记录：官方仓库 `FDH2/UxPlay`、release `v1.73.6`、commit
   `21eef8df25d91e12635c36d8176ad192725baca2`、源码归档 SHA-256
   `3a1a754bc7ed4b0f72b6237aa4d769238b9c20a71b651bc3fe9ac679e2a67f18`；

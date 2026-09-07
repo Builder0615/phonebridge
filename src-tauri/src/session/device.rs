@@ -56,6 +56,10 @@ impl DeviceKind {
     }
 }
 
+fn keyboard_input_ready(input_report_mask: u8) -> bool {
+    input_report_mask & (INPUT_REPORT_KEYBOARD | INPUT_REPORT_BOOT_KEYBOARD) != 0
+}
+
 struct ActiveMirror {
     adapter: Arc<Mutex<Box<dyn MirrorAdapter>>>,
     worker: Option<std::thread::JoinHandle<()>>,
@@ -853,21 +857,23 @@ impl DeviceSession {
             DeviceKind::Iphone => {
                 let use_usb = self.inner.prefs.lock().unwrap().ios_usb_control_enabled;
                 if use_usb {
-                    match self.start_ios_usb_control() {
-                        Ok(()) => Ok(()),
-                        Err(error) => {
-                            // WDA/iproxy is deliberately optional. A failed
-                            // precision channel must not make a working BLE
-                            // session look broken or leave the state machine in
-                            // ControlPairing forever.
-                            self.emit_log(
-                                "warn",
-                                "ios_usb_fallback",
-                                format!("iOS USB/WDA 绝对坐标通道未就绪，已回退 BLE：{error}"),
-                            );
-                            self.start_ble_control()
-                        }
+                    // This switch explicitly means "precision mode". Do not
+                    // silently fall back to BLE here: BLE is a relative mouse
+                    // and can never preserve the absolute point selected in
+                    // the AirPlay canvas. A silent fallback made the UI say
+                    // that control was connected while every click still
+                    // suffered from pointer acceleration/drift.
+                    let result = self.start_ios_usb_control();
+                    if let Err(error) = &result {
+                        self.emit_log(
+                            "error",
+                            "ios_usb_required",
+                            format!(
+                                "iOS USB/WDA 精确控制未就绪，未回退 BLE；请先准备并运行 WDA、iproxy 和 USB 信任：{error}"
+                            ),
+                        );
                     }
+                    result
                 } else {
                     self.start_ble_control()
                 }
@@ -912,12 +918,13 @@ impl DeviceSession {
         // powered_on/advertising 可能仍为 false（授权弹窗/控制器上电中）。
         // native bridge 会把真实 state/authorization/错误保留在 status，稍后复查。
         let advertised_name = s.advertised_name.as_deref().unwrap_or(crate::APP_NAME);
+        let pairing_name = s.pairing_name.as_deref().unwrap_or("本机名称");
         self.emit_log(
             "info",
             "control_broadcasting",
             format!(
-                "iOS BLE HID 已请求广播；实际 BLE 广播短名为「{advertised_name}」。macOS 的 iPhone 系统蓝牙列表可能显示本机/GAP 名称而不是「{}」，请连接列表中的对应本机条目",
-                crate::APP_NAME
+                "iOS BLE HID 已请求广播；实际 BLE 广播短名为「{advertised_name}」。iPhone 蓝牙列表通常显示 macOS 本机名称「{pairing_name}」，不一定显示「{}」，请连接该本机条目",
+                crate::APP_NAME,
             ),
         );
         self.schedule_ble_power_check();
@@ -1120,8 +1127,7 @@ impl DeviceSession {
         if status.connected && status.subscribed {
             if state == SessionStateName::ControlPairing {
                 let input_report_mask = status.input_report_mask;
-                let keyboard_ready =
-                    input_report_mask & (INPUT_REPORT_KEYBOARD | INPUT_REPORT_BOOT_KEYBOARD) != 0;
+                let keyboard_ready = keyboard_input_ready(input_report_mask);
                 let mouse_ready =
                     input_report_mask & (INPUT_REPORT_MOUSE | INPUT_REPORT_BOOT_MOUSE) != 0;
                 let input_summary = match (keyboard_ready, mouse_ready) {
@@ -1130,17 +1136,12 @@ impl DeviceSession {
                     (false, true) => "鼠标",
                     (false, false) => "无",
                 };
-                let input_hint = if mouse_ready {
-                    "；BLE 鼠标报告通道已就绪，但 iOS 屏幕指针仍需开启辅助触控并在“设备→蓝牙设备”中选择本机"
-                } else {
-                    ""
-                };
                 self.on_hid_paired(status.device_name);
                 self.emit_log(
                     "info",
                     "control_connected",
                     format!(
-                        "iOS BLE HID 已连接并订阅{input_summary}输入报告（输入报告掩码 0x{input_report_mask:02X}），BLE 通知通道已就绪{input_hint}"
+                        "iOS BLE HID 已连接并订阅{input_summary}输入报告（输入报告掩码 0x{input_report_mask:02X}），BLE 通知通道已就绪"
                     ),
                 );
             }
@@ -1516,26 +1517,44 @@ impl DeviceSession {
                 };
                 let result = match input.as_mut() {
                     Some(InputHandle::Ble(h)) => {
-                        let enc = encode_ascii_text(&text);
-                        let positions = enc.unencodable_positions.clone();
-                        if !positions.is_empty() {
+                        let status = h.status();
+                        let keyboard_ready = keyboard_input_ready(status.input_report_mask);
+                        if !keyboard_ready {
                             PasteResult {
                                 ok: false,
-                                char_count: enc.char_count,
-                                byte_count: enc.byte_count,
+                                char_count: text.encode_utf16().count(),
+                                byte_count: text.len(),
                                 truncated: false,
-                                unencodable_positions: positions.clone(),
+                                unencodable_positions: Vec::new(),
                                 error: Some(PasteError {
-                                    code: "unencodable_chars".into(),
+                                    code: "keyboard_report_not_ready".into(),
                                     message: format!(
-                                        "{} 个字符无法表达（位置：{:?}），未发送",
-                                        positions.len(),
-                                        positions
+                                        "iOS BLE 当前未订阅键盘输入报告（掩码 0x{:02X}），本次粘贴未发送；中英文混合文本请在设置中启用 USB/WDA 精确控制，并重新启用控制",
+                                        status.input_report_mask
                                     ),
                                 }),
                             }
                         } else {
-                            run_paste_text_flow(&text, h.as_mut(), max, token, token)
+                            let enc = encode_ascii_text(&text);
+                            let positions = enc.unencodable_positions.clone();
+                            if !positions.is_empty() {
+                                PasteResult {
+                                    ok: false,
+                                    char_count: enc.char_count,
+                                    byte_count: enc.byte_count,
+                                    truncated: false,
+                                    unencodable_positions: positions,
+                                    error: Some(PasteError {
+                                        code: "unencodable_chars".into(),
+                                        message: format!(
+                                            "有 {} 个字符（中文、Emoji 或其他 Unicode）无法通过 BLE HID 键盘表达，未发送；中英文混合文本请在设置中启用 USB/WDA 精确控制，并重新启用控制",
+                                            enc.unencodable_positions.len()
+                                        ),
+                                    }),
+                                }
+                            } else {
+                                run_paste_text_flow(&text, h.as_mut(), max, token, token)
+                            }
                         }
                     }
                     Some(InputHandle::IosUsb(c)) => {
@@ -1545,7 +1564,7 @@ impl DeviceSession {
                             match c.text(&text) {
                                 Ok(()) => PasteResult {
                                     ok: true,
-                                    char_count: text.chars().count(),
+                                    char_count: text.encode_utf16().count(),
                                     byte_count: text.len(),
                                     truncated: false,
                                     unencodable_positions: Vec::new(),
@@ -1553,7 +1572,7 @@ impl DeviceSession {
                                 },
                                 Err(e) => PasteResult {
                                     ok: false,
-                                    char_count: text.chars().count(),
+                                    char_count: text.encode_utf16().count(),
                                     byte_count: text.len(),
                                     truncated: true,
                                     unencodable_positions: Vec::new(),
@@ -1807,6 +1826,17 @@ mod tests {
         assert_eq!(reconnect_delay_ms(5), 16000);
         assert_eq!(reconnect_delay_ms(6), 16000);
         assert_eq!(reconnect_delay_ms(u32::MAX), 16000);
+    }
+
+    #[test]
+    fn keyboard_report_readiness_ignores_mouse_only_subscriptions() {
+        assert!(!keyboard_input_ready(INPUT_REPORT_MOUSE));
+        assert!(!keyboard_input_ready(INPUT_REPORT_BOOT_MOUSE));
+        assert!(keyboard_input_ready(INPUT_REPORT_KEYBOARD));
+        assert!(keyboard_input_ready(INPUT_REPORT_BOOT_KEYBOARD));
+        assert!(keyboard_input_ready(
+            INPUT_REPORT_MOUSE | INPUT_REPORT_KEYBOARD
+        ));
     }
 
     #[test]

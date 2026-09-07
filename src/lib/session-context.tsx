@@ -31,6 +31,9 @@ export interface SessionContextValue {
   capability: CapabilityReport | null
   capabilityLoading: boolean
   capabilityError: string | null
+  iosControlCapability: api.IosControlCapability | null
+  iosControlCapabilityLoading: boolean
+  iosControlCapabilityError: string | null
   /** 会话列表（面板展示） */
   sessions: api.SessionInfo[]
   /** 每会话的实时状态（state/hid/mirror） */
@@ -45,6 +48,7 @@ export interface SessionContextValue {
   setPrefs: (patch: Partial<SessionPreferences>) => void
   refreshUsb: () => Promise<void>
   refreshCapability: () => Promise<void>
+  refreshIosControlCapability: () => Promise<void>
   refreshSessions: () => Promise<void>
   connect: (kind: "iphone" | "android", id: string) => Promise<void>
   disconnect: (id: string) => Promise<void>
@@ -64,6 +68,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [capability, setCapability] = useState<CapabilityReport | null>(null)
   const [capabilityLoading, setCapabilityLoading] = useState(true)
   const [capabilityError, setCapabilityError] = useState<string | null>(null)
+  const [iosControlCapability, setIosControlCapability] = useState<api.IosControlCapability | null>(null)
+  const [iosControlCapabilityLoading, setIosControlCapabilityLoading] = useState(false)
+  const [iosControlCapabilityError, setIosControlCapabilityError] = useState<string | null>(null)
   const [sessions, setSessions] = useState<api.SessionInfo[]>([])
   const [details, setDetails] = useState<Record<string, SessionDetail>>({})
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -92,6 +99,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setCapabilityError(err instanceof Error ? err.message : String(err))
     } finally {
       setCapabilityLoading(false)
+    }
+  }, [])
+
+  const refreshIosControlCapability = useCallback(async () => {
+    setIosControlCapabilityLoading(true)
+    setIosControlCapabilityError(null)
+    try {
+      setIosControlCapability(await api.getIosControlCapability())
+    } catch (err) {
+      setIosControlCapabilityError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setIosControlCapabilityLoading(false)
     }
   }, [])
 
@@ -147,6 +166,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void refreshCapability()
+    void refreshIosControlCapability()
     void refreshUsb()
     void refreshSessions()
     void refreshLogs()
@@ -208,7 +228,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       off.splice(0).forEach((f) => f())
       window.clearInterval(timer)
     }
-  }, [refreshCapability, refreshUsb, refreshSessions, refreshLogs])
+  }, [refreshCapability, refreshIosControlCapability, refreshUsb, refreshSessions, refreshLogs])
 
   const connect = useCallback(async (kind: "iphone" | "android", id: string) => {
     try {
@@ -273,6 +293,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       capability,
       capabilityLoading,
       capabilityError,
+      iosControlCapability,
+      iosControlCapabilityLoading,
+      iosControlCapabilityError,
       sessions,
       details,
       activeId,
@@ -285,6 +308,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setPrefs,
       refreshUsb,
       refreshCapability,
+      refreshIosControlCapability,
       refreshSessions,
       connect,
       disconnect,
@@ -301,6 +325,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       capability,
       capabilityLoading,
       capabilityError,
+      iosControlCapability,
+      iosControlCapabilityLoading,
+      iosControlCapabilityError,
       sessions,
       details,
       activeId,
@@ -313,6 +340,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setPrefs,
       refreshUsb,
       refreshCapability,
+      refreshIosControlCapability,
       refreshSessions,
       connect,
       disconnect,

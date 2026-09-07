@@ -1,19 +1,20 @@
 //! iOS USB/WDA precision-control adapter.
 //!
 //! The normal iOS path remains AirPlay + BLE HID.  This module is an optional
-//! precision path: an already-installed WebDriverAgent (WDA) is reached through
-//! a loopback `iproxy` tunnel and receives absolute W3C input actions.  It does
-//! not install a developer image, sign an iOS helper, or replace the video
-//! transport.  That keeps the feature usable on both Windows and macOS while
-//! leaving provisioning/trust under the user's explicit control.
+//! precision path: a signed WebDriverAgent (WDA) is reached through a loopback
+//! tunnel or the in-process registration owned by the bundled `go-ios` runner,
+//! and receives absolute W3C input actions.  The WDA installer never creates or
+//! re-signs the IPA; Apple provisioning/trust remains an explicit device check.
 //!
 //! Only the Rust standard library and serde_json are used here.  In particular,
 //! there is no macOS-only framework or compile-time dependency in this module.
 
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -24,9 +25,42 @@ use super::AdapterError;
 const DEFAULT_WDA_PORT: u16 = 8100;
 const HTTP_TIMEOUT: Duration = Duration::from_secs(2);
 const TUNNEL_WAIT_TIMEOUT: Duration = Duration::from_secs(8);
+const WDA_TEXT_BATCH_CHARS: usize = 128;
+const WDA_TEXT_FREQUENCY: u32 = 600;
 const POINTER_SOURCE_ID: &str = "phonebridge-touch";
 const KEY_SOURCE_ID: &str = "phonebridge-keyboard";
 const WHEEL_SOURCE_ID: &str = "phonebridge-wheel";
+
+static WDA_ENDPOINTS: OnceLock<Mutex<HashMap<String, u16>>> = OnceLock::new();
+
+fn wda_endpoints() -> &'static Mutex<HashMap<String, u16>> {
+    WDA_ENDPOINTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Register a host port owned by the cross-platform WDA runner.  The mapping
+/// stays inside the Rust process; the raw UDID is never returned to the UI.
+pub(crate) fn register_wda_endpoint(raw_udid: &str, host_port: u16) {
+    wda_endpoints()
+        .lock()
+        .unwrap()
+        .insert(raw_udid.to_string(), host_port);
+}
+
+pub(crate) fn unregister_wda_endpoint(raw_udid: &str) {
+    wda_endpoints().lock().unwrap().remove(raw_udid);
+}
+
+fn registered_wda_endpoint(raw_udid: &str) -> Option<LoopbackEndpoint> {
+    wda_endpoints()
+        .lock()
+        .unwrap()
+        .get(raw_udid)
+        .copied()
+        .map(|port| LoopbackEndpoint {
+            host: "127.0.0.1".into(),
+            port,
+        })
+}
 
 /// A logical screen size used by the absolute-coordinate conversion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,6 +79,8 @@ pub struct IosControlCapability {
     pub usb_wda_enabled: bool,
     pub wda_reachable: bool,
     pub iproxy_present: bool,
+    pub wda_artifact_present: bool,
+    pub direct_install_ready: bool,
     pub detail: String,
 }
 
@@ -436,6 +472,18 @@ impl WdaClient {
         self.request("DELETE", &path, None).map(|_| ())
     }
 
+    /// WDA's dedicated keyboard route is important for paste.  Sending one
+    /// W3C key action per Unicode scalar looks tempting, but WDA treats that
+    /// route as physical key events and iOS may drop non-ASCII characters.
+    /// `/wda/keys` delegates to XCTest's text-input path and accepts a UTF-8
+    /// string, including mixed Chinese/Latin text, when an editable target is
+    /// focused on the phone.
+    fn keys(&mut self, text: &str) -> Result<(), AdapterError> {
+        let body = wda_keys_payload(text);
+        let path = self.session_path("/wda/keys")?;
+        self.request("POST", &path, Some(&body)).map(|_| ())
+    }
+
     fn delete_session(&mut self) -> Result<(), AdapterError> {
         if self.session_id.is_empty() {
             return Ok(());
@@ -469,7 +517,41 @@ fn executable_name(name: &str) -> String {
     }
 }
 
-fn resolve_iproxy(resources: &Path) -> Option<PathBuf> {
+fn resolve_runtime_tool(resources: &Path, name: &str, env_name: &str) -> Option<PathBuf> {
+    let executable = executable_name(name);
+    let mut candidates = vec![
+        resources.join("binaries").join(&executable),
+        resources.join("binaries/ios-usb").join(&executable),
+        resources.join(&executable),
+    ];
+    if let Ok(configured) = std::env::var(env_name) {
+        let configured = PathBuf::from(configured);
+        candidates.push(if configured.is_dir() {
+            configured.join(&executable)
+        } else {
+            configured
+        });
+    }
+    if let Some(path) = std::env::var_os("PATH") {
+        candidates.extend(std::env::split_paths(&path).map(|dir| dir.join(&executable)));
+    }
+    candidates.into_iter().find(|path| path.is_file())
+}
+
+fn wda_keys_payload(text: &str) -> Value {
+    json!({
+        // WDA's /wda/keys handler joins the value array before calling
+        // FBTypeText.  Keep the whole chunk as one item so Unicode grapheme
+        // sequences and mixed scripts are not split into separate requests.
+        "value": [text],
+        // The WDA default is intentionally conservative (60 chars/minute),
+        // which makes a normal clipboard paste appear hung.  The bounded
+        // request size above still gives WDA a chance to process the field.
+        "frequency": WDA_TEXT_FREQUENCY,
+    })
+}
+
+pub(crate) fn resolve_iproxy(resources: &Path) -> Option<PathBuf> {
     let executable = executable_name("iproxy");
     let mut candidates = vec![
         resources.join("binaries").join(&executable),
@@ -519,6 +601,22 @@ fn resolve_iproxy(resources: &Path) -> Option<PathBuf> {
 /// touching a physical device. This is safe to call from a diagnostics panel.
 pub fn inspect_capability(resources: &Path) -> IosControlCapability {
     let iproxy_present = resolve_iproxy(resources).is_some();
+    let mut wda_artifact_candidates = vec![
+        resources.join("binaries/ios-usb/WebDriverAgentRunner.ipa"),
+        resources.join("binaries/ios-wda/WebDriverAgentRunner.ipa"),
+    ];
+    if let Ok(path) = std::env::var("PHONEBRIDGE_WDA_IPA_PATH") {
+        wda_artifact_candidates.push(PathBuf::from(path));
+    }
+    let wda_artifact_present = wda_artifact_candidates.iter().any(|path| path.is_file());
+    let direct_install_ready = wda_artifact_present
+        && resolve_runtime_tool(
+            resources,
+            "ideviceinstaller",
+            "PHONEBRIDGE_IDEVICEINSTALLER_PATH",
+        )
+        .is_some()
+        && resolve_runtime_tool(resources, "ios", "PHONEBRIDGE_GO_IOS_PATH").is_some();
     let configured_url = std::env::var("PHONEBRIDGE_IOS_WDA_URL").ok();
     let (wda_reachable, detail) = match configured_url {
         Some(url) => match parse_loopback_url(&url) {
@@ -531,6 +629,14 @@ pub fn inspect_capability(resources: &Path) -> IosControlCapability {
             },
             Err(error) => (false, error.to_string()),
         },
+        None if direct_install_ready => (
+            false,
+            "已找到签名 WDA IPA、安装器和 go-ios；点击“一键准备 WDA”即可由应用安装并启动".into(),
+        ),
+        None if wda_artifact_present => (
+            false,
+            "已找到签名 WDA IPA，但缺少安装器或 go-ios；请检查发布包的 ios-usb 资源".into(),
+        ),
         None if iproxy_present => (
             false,
             "已找到 iproxy；选择具体 iPhone 后将通过 USB 隧道检测 WDA".into(),
@@ -541,9 +647,11 @@ pub fn inspect_capability(resources: &Path) -> IosControlCapability {
         ),
     };
     IosControlCapability {
-        usb_wda_enabled: iproxy_present || wda_reachable,
+        usb_wda_enabled: iproxy_present || wda_reachable || direct_install_ready,
         wda_reachable,
         iproxy_present,
+        wda_artifact_present,
+        direct_install_ready,
         detail,
     }
 }
@@ -572,13 +680,102 @@ fn raw_udid_for_session(resources: &Path, session_id: &str) -> Result<String, Ad
     super::usb_devices::resolve_ios_raw_id(resources, token)
 }
 
-fn allocate_local_port() -> Result<u16, AdapterError> {
+pub(crate) fn allocate_local_port() -> Result<u16, AdapterError> {
     let listener = TcpListener::bind(("127.0.0.1", 0))
         .map_err(|e| AdapterError::IosUsbUnavailable(format!("分配 iOS WDA 本地端口失败：{e}")))?;
     listener
         .local_addr()
         .map(|address| address.port())
         .map_err(|e| AdapterError::IosUsbUnavailable(format!("读取 iOS WDA 本地端口失败：{e}")))
+}
+
+/// Probe an already-running WDA without creating a WebDriver session.  The
+/// setup wizard uses this to distinguish “WDA is installed and serving” from
+/// “the phone is merely visible over USB”.  The temporary tunnel is always
+/// killed on return.
+pub(crate) fn probe_wda(resources: &Path, raw_udid: &str) -> Result<(), AdapterError> {
+    let configured_url = std::env::var("PHONEBRIDGE_IOS_WDA_URL").ok();
+    let (endpoint, tunnel) = if let Some(url) = configured_url {
+        (parse_loopback_url(&url)?, None)
+    } else if let Some(endpoint) = registered_wda_endpoint(raw_udid) {
+        (endpoint, None)
+    } else {
+        if !valid_device_id(raw_udid) {
+            return Err(AdapterError::IosUsbUnavailable(
+                "iPhone UDID 格式无效，无法建立 WDA 隧道".into(),
+            ));
+        }
+        let iproxy = resolve_iproxy(resources).ok_or_else(|| {
+            AdapterError::IosUsbUnavailable("未找到 iproxy，无法检测 iPhone 上的 WDA".into())
+        })?;
+        let local_port = allocate_local_port()?;
+        let forward_spec = iproxy_forward_spec(local_port, DEFAULT_WDA_PORT);
+        let child = Command::new(iproxy)
+            .args(["-u", raw_udid, &forward_spec])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| AdapterError::IosUsbUnavailable(format!("启动 iproxy 失败：{e}")))?;
+        (
+            LoopbackEndpoint {
+                host: "127.0.0.1".into(),
+                port: local_port,
+            },
+            Some(child),
+        )
+    };
+    let mut tunnel = TunnelGuard(tunnel);
+    let deadline = Instant::now() + TUNNEL_WAIT_TIMEOUT;
+    loop {
+        if let Some(child) = tunnel.0.as_mut() {
+            if let Ok(Some(_)) = child.try_wait() {
+                return Err(AdapterError::IosUsbUnavailable(
+                    "iproxy 已退出，iPhone 上的 WDA 没有响应".into(),
+                ));
+            }
+        }
+        match WdaClient::open(endpoint.clone()) {
+            Ok(mut client) => match client.status() {
+                Ok(()) => return Ok(()),
+                Err(error) if Instant::now() < deadline => {
+                    let _ = error;
+                }
+                Err(error) => return Err(error),
+            },
+            Err(error) if Instant::now() < deadline => {
+                let _ = error;
+            }
+            Err(error) => return Err(error),
+        }
+        std::thread::sleep(Duration::from_millis(120));
+    }
+}
+
+/// Probe a host port explicitly while a cross-platform WDA runner owns the
+/// forwarding process.
+pub(crate) fn probe_wda_local(host_port: u16) -> Result<(), AdapterError> {
+    let endpoint = LoopbackEndpoint {
+        host: "127.0.0.1".into(),
+        port: host_port,
+    };
+    let deadline = Instant::now() + TUNNEL_WAIT_TIMEOUT;
+    loop {
+        match WdaClient::open(endpoint.clone()) {
+            Ok(mut client) => match client.status() {
+                Ok(()) => return Ok(()),
+                Err(error) if Instant::now() < deadline => {
+                    let _ = error;
+                }
+                Err(error) => return Err(error),
+            },
+            Err(error) if Instant::now() < deadline => {
+                let _ = error;
+            }
+            Err(error) => return Err(error),
+        }
+        std::thread::sleep(Duration::from_millis(120));
+    }
 }
 
 fn iproxy_forward_spec(local_port: u16, device_port: u16) -> String {
@@ -606,29 +803,35 @@ impl IosUsbControl {
         let (endpoint, tunnel, udid) = if let Some(url) = configured_url {
             (parse_loopback_url(&url)?, None, None)
         } else {
-            let iproxy = resolve_iproxy(resources).ok_or_else(|| {
-                AdapterError::IosUsbUnavailable(
-                    "未找到 iproxy；请把经过审计的跨平台 iproxy 放入应用 binaries/，或设置 PHONEBRIDGE_IPROXY_PATH".into(),
-                )
-            })?;
             let udid = raw_udid_for_session(resources, session_id)?;
-            let local_port = allocate_local_port()?;
-            let forward_spec = iproxy_forward_spec(local_port, DEFAULT_WDA_PORT);
-            let child = Command::new(iproxy)
-                .args(["-u", &udid, &forward_spec])
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()
-                .map_err(|e| AdapterError::IosUsbUnavailable(format!("启动 iproxy 失败：{e}")))?;
-            (
-                LoopbackEndpoint {
-                    host: "127.0.0.1".into(),
-                    port: local_port,
-                },
-                Some(child),
-                Some(udid),
-            )
+            if let Some(endpoint) = registered_wda_endpoint(&udid) {
+                (endpoint, None, Some(udid))
+            } else {
+                let iproxy = resolve_iproxy(resources).ok_or_else(|| {
+                    AdapterError::IosUsbUnavailable(
+                        "未找到 iproxy；请把经过审计的跨平台 iproxy 放入应用 binaries/，或设置 PHONEBRIDGE_IPROXY_PATH".into(),
+                    )
+                })?;
+                let local_port = allocate_local_port()?;
+                let forward_spec = iproxy_forward_spec(local_port, DEFAULT_WDA_PORT);
+                let child = Command::new(iproxy)
+                    .args(["-u", &udid, &forward_spec])
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn()
+                    .map_err(|e| {
+                        AdapterError::IosUsbUnavailable(format!("启动 iproxy 失败：{e}"))
+                    })?;
+                (
+                    LoopbackEndpoint {
+                        host: "127.0.0.1".into(),
+                        port: local_port,
+                    },
+                    Some(child),
+                    Some(udid),
+                )
+            }
         };
         let mut tunnel = TunnelGuard(tunnel);
 
@@ -803,28 +1006,18 @@ impl IosUsbControl {
         }]))
     }
 
-    /// Type text through WDA's key input source.  Text is intentionally sent
-    /// in bounded batches so a large clipboard value cannot create an
-    /// unbounded single HTTP request.
+    /// Type text through WDA's UTF-8 `/wda/keys` route. Text is intentionally
+    /// sent in bounded batches so a large clipboard value cannot create an
+    /// unbounded single HTTP request. Unlike BLE HID, this path can carry
+    /// mixed Chinese/Latin text (and other Unicode accepted by XCTest).
     pub fn text(&mut self, text: &str) -> Result<(), AdapterError> {
-        for chunk in text.chars().collect::<Vec<_>>().chunks(128) {
-            let mut actions = Vec::with_capacity(chunk.len() * 2);
-            for character in chunk {
-                let value = if *character == '\n' {
-                    "\u{E007}".to_string()
-                } else if *character == '\t' {
-                    "\u{E004}".to_string()
-                } else {
-                    character.to_string()
-                };
-                actions.push(json!({ "type": "keyDown", "value": value }));
-                actions.push(json!({ "type": "keyUp", "value": value }));
-            }
-            self.client.actions(json!([{
-                "type": "key",
-                "id": KEY_SOURCE_ID,
-                "actions": actions
-            }]))?;
+        for chunk in text
+            .chars()
+            .collect::<Vec<_>>()
+            .chunks(WDA_TEXT_BATCH_CHARS)
+        {
+            let chunk: String = chunk.iter().collect();
+            self.client.keys(&chunk)?;
         }
         Ok(())
     }
@@ -901,8 +1094,8 @@ fn webdriver_key_value(code: &str, key: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        iproxy_forward_spec, map_absolute_point, parse_loopback_url, webdriver_key_value,
-        ScreenSize,
+        iproxy_forward_spec, map_absolute_point, parse_loopback_url, wda_keys_payload,
+        webdriver_key_value, ScreenSize, WDA_TEXT_FREQUENCY,
     };
 
     #[test]
@@ -969,5 +1162,12 @@ mod tests {
     #[test]
     fn iproxy_uses_current_single_forward_spec() {
         assert_eq!(iproxy_forward_spec(49152, 8100), "49152:8100");
+    }
+
+    #[test]
+    fn wda_keys_payload_preserves_mixed_unicode_text() {
+        let payload = wda_keys_payload("Hello，世界 123🙂");
+        assert_eq!(payload["value"][0], "Hello，世界 123🙂");
+        assert_eq!(payload["frequency"], WDA_TEXT_FREQUENCY);
     }
 }
