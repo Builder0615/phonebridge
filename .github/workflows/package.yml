@@ -93,6 +93,27 @@ jobs:
             mingw-w64-ucrt-x86_64-pkg-config
             base-devel
 
+      - name: Enable VBScript for WiX MSI validation
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $feature = Get-WindowsOptionalFeature -Online -FeatureName VBSCRIPT -ErrorAction SilentlyContinue
+          if ($null -eq $feature) {
+            throw "Windows runner 没有提供 VBSCRIPT 可选组件，无法执行 WiX MSI ICE 校验"
+          }
+          if ($feature.State -ne "Enabled") {
+            Enable-WindowsOptionalFeature -Online -FeatureName VBSCRIPT -All -NoRestart | Out-Host
+          }
+          $feature = Get-WindowsOptionalFeature -Online -FeatureName VBSCRIPT
+          if ($feature.State -ne "Enabled") {
+            throw "无法启用 VBSCRIPT，可选组件当前状态为 $($feature.State)"
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $env:WINDIR "System32\vbscript.dll"))) {
+            throw "VBSCRIPT 已报告启用，但 vbscript.dll 不存在"
+          }
+          Write-Host "VBSCRIPT 已启用，WiX MSI ICE 校验可用"
+
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
