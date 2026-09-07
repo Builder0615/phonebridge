@@ -150,10 +150,15 @@ function unzip(zipPath, outDir) {
 // ---------------------------------------------------------------------------
 const record = {}
 
+function tripleFilename(name) {
+  // Tauri expects the target triple before the Windows executable suffix:
+  // `adb-x86_64-pc-windows-msvc.exe`, not `adb.exe-x86_64-pc-windows-msvc`.
+  return platform === "win32" ? `${name}-${TRIPLE}.exe` : `${name}-${TRIPLE}`
+}
+
 function writeTripleCopy(name) {
   // externalBin 打包源：name-<target triple>（tauri 复制进包时去掉后缀）
-  const tripleName = `${exe(name)}-${TRIPLE}`
-  const dst = join(bins, tripleName)
+  const dst = join(bins, tripleFilename(name))
   const src = join(bins, exe(name))
   if (existsSync(src)) {
     if (!isHostCompatibleExecutable(src)) {
@@ -178,7 +183,7 @@ function collectCopy(name, displayName) {
     chmodSync(dst, 0o755)
     writeTripleCopy(name)
     record[displayName] = { source: "system", path: src, version: toolVersion(name, displayName) }
-    console.log(`[ok] ${displayName} 已内置（来自 ${src}，打包名 ${exe(name)}-${TRIPLE}）`)
+    console.log(`[ok] ${displayName} 已内置（来自 ${src}，打包名 ${tripleFilename(name)}）`)
     return true
   } else if (src === dst) {
     writeTripleCopy(name)
