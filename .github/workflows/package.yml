@@ -98,19 +98,19 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $feature = Get-WindowsOptionalFeature -Online -FeatureName VBSCRIPT -ErrorAction SilentlyContinue
-          if ($null -eq $feature) {
-            throw "Windows runner 没有提供 VBSCRIPT 可选组件，无法执行 WiX MSI ICE 校验"
+          $capability = Get-WindowsCapability -Online -Name "VBSCRIPT~~~~0.0.1.0" -ErrorAction SilentlyContinue
+          if ($null -eq $capability) {
+            throw "Windows runner 没有提供 VBSCRIPT 功能包，无法执行 WiX MSI ICE 校验"
           }
-          if ($feature.State -ne "Enabled") {
-            Enable-WindowsOptionalFeature -Online -FeatureName VBSCRIPT -All -NoRestart | Out-Host
+          if ($capability.State -ne "Installed") {
+            Add-WindowsCapability -Online -Name $capability.Name | Out-Host
           }
-          $feature = Get-WindowsOptionalFeature -Online -FeatureName VBSCRIPT
-          if ($feature.State -ne "Enabled") {
-            throw "无法启用 VBSCRIPT，可选组件当前状态为 $($feature.State)"
+          $capability = Get-WindowsCapability -Online -Name $capability.Name
+          if ($capability.State -ne "Installed") {
+            throw "无法安装 VBSCRIPT 功能包，当前状态为 $($capability.State)"
           }
           if (-not (Test-Path -LiteralPath (Join-Path $env:WINDIR "System32\vbscript.dll"))) {
-            throw "VBSCRIPT 已报告启用，但 vbscript.dll 不存在"
+            throw "VBSCRIPT 已报告安装，但 vbscript.dll 不存在"
           }
           Write-Host "VBSCRIPT 已启用，WiX MSI ICE 校验可用"
 
