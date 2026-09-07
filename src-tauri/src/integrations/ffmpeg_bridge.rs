@@ -9,16 +9,17 @@
 //! 更便于跨机部署，且避免 crates.io 上 ffmpeg-next 的构建系统依赖。
 
 use std::io::Read;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use serde::Serialize;
 
 use super::frame_bridge::RgbaFrame;
+use super::process::hidden_command;
 use super::AdapterError;
 
 /// 检查系统是否可调用 ffmpeg。
 pub fn ffmpeg_available() -> bool {
-    Command::new("ffmpeg")
+    hidden_command("ffmpeg")
         .arg("-version")
         .output()
         .map(|o| o.status.success())
@@ -67,7 +68,7 @@ impl FFmpegVideoDecoder {
             return Ok(None);
         }
 
-        let mut cmd = Command::new("ffmpeg");
+        let mut cmd = hidden_command("ffmpeg");
         cmd.args([
             "-loglevel",
             "error",
@@ -133,7 +134,7 @@ pub fn ffmpeg_info() -> FfmpegInfo {
             version: None,
         };
     }
-    let out = Command::new("ffmpeg")
+    let out = hidden_command("ffmpeg")
         .arg("-version")
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())

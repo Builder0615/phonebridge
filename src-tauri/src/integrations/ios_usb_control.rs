@@ -13,13 +13,14 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use serde_json::{json, Value};
 
+use super::process::hidden_command;
 use super::AdapterError;
 
 const DEFAULT_WDA_PORT: u16 = 8100;
@@ -710,7 +711,7 @@ pub(crate) fn probe_wda(resources: &Path, raw_udid: &str) -> Result<(), AdapterE
         })?;
         let local_port = allocate_local_port()?;
         let forward_spec = iproxy_forward_spec(local_port, DEFAULT_WDA_PORT);
-        let child = Command::new(iproxy)
+        let child = hidden_command(iproxy)
             .args(["-u", raw_udid, &forward_spec])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -814,7 +815,7 @@ impl IosUsbControl {
                 })?;
                 let local_port = allocate_local_port()?;
                 let forward_spec = iproxy_forward_spec(local_port, DEFAULT_WDA_PORT);
-                let child = Command::new(iproxy)
+                let child = hidden_command(iproxy)
                     .args(["-u", &udid, &forward_spec])
                     .stdin(Stdio::null())
                     .stdout(Stdio::null())

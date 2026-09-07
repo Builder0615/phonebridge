@@ -230,7 +230,7 @@ jobs:
             "-ext", $utilExtension,
             "-ext", $uiExtension,
             "-o", $manualMsi,
-            "-cultures:en-us",
+            "-cultures:zh-cn",
             "-loc", $locale
           ) + $wixObjects
           Push-Location $wixBuildDir
@@ -245,7 +245,7 @@ jobs:
 
           $msiDir = Join-Path $env:GITHUB_WORKSPACE "src-tauri\target\$env:TAURI_TARGET\release\bundle\msi"
           New-Item -ItemType Directory -Force -Path $msiDir | Out-Null
-          $msiPath = Join-Path $msiDir "快投屏_$env:RELEASE_VERSION`_x64_en-US.msi"
+          $msiPath = Join-Path $msiDir "快投屏_$env:RELEASE_VERSION`_x64_zh-CN.msi"
           Move-Item -LiteralPath $manualMsi -Destination $msiPath -Force
           if (-not (Test-Path -LiteralPath $msiPath -PathType Leaf)) {
             throw "WiX 重链接未生成 MSI：$msiPath"

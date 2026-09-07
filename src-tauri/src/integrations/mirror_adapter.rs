@@ -25,6 +25,7 @@ use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::os::unix::process::CommandExt;
 
 use super::frame_bridge::{FrameSink, RgbaFrame};
+use super::process::hidden_command;
 use super::AdapterError;
 
 const IOS_OUTPUT_WIDTH: u32 = 480;
@@ -751,7 +752,7 @@ impl UxPlayMirrorAdapter {
              pad={IOS_OUTPUT_WIDTH}:{IOS_OUTPUT_HEIGHT}:(ow-iw)/2:(oh-ih)/2:black"
         );
         let spawn_decoder = |sdp_path: &Path| {
-            Command::new(&ffmpeg)
+            hidden_command(&ffmpeg)
                 .args([
                     "-hide_banner",
                     "-loglevel",
@@ -837,7 +838,7 @@ impl UxPlayMirrorAdapter {
              phonebridge_rtp. ! queue ! udpsink host=127.0.0.1 port={h264_port} \
              phonebridge_rtp. ! queue ! udpsink host=127.0.0.1 port={h265_port}"
         );
-        let mut uxplay_command = Command::new(&path);
+        let mut uxplay_command = hidden_command(&path);
         let gstreamer_runtime = configure_uxplay_runtime(&mut uxplay_command, &path);
         if cfg!(any(target_os = "macos", target_os = "windows")) && gstreamer_runtime.is_none() {
             return Err(AdapterError::DependencyMissing(
@@ -1033,7 +1034,7 @@ impl UxPlayMirrorAdapter {
     ) -> Result<(), AdapterError> {
         let (frame_read, frame_write) = create_gstreamer_frame_pipe()?;
         let frame_fd = frame_write.as_raw_fd();
-        let mut uxplay_command = Command::new(&path);
+        let mut uxplay_command = hidden_command(&path);
         let gstreamer_runtime = configure_uxplay_runtime(&mut uxplay_command, &path);
         if gstreamer_runtime.is_none() {
             return Err(AdapterError::DependencyMissing(
@@ -1327,7 +1328,7 @@ pub fn reap_stale_uxplay(app_resources_dir: &Path) {
     if paths.is_empty() {
         return;
     }
-    let Ok(output) = std::process::Command::new("ps")
+    let Ok(output) = hidden_command("ps")
         .args(["-axo", "pid=,command="])
         .output()
     else {

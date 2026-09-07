@@ -14,13 +14,14 @@
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{channel, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use super::frame_bridge::{FrameSink, RgbaFrame};
+use super::process::hidden_command;
 use super::AdapterError;
 
 const SCRCPY_SERVER_VERSION: &str = "4.0";
@@ -115,7 +116,7 @@ fn sanitized_child_error(operation: &str, status: &std::process::ExitStatus) -> 
 }
 
 fn push_server(adb: &Path, serial: &str, server: &Path) -> Result<(), AdapterError> {
-    let output = Command::new(adb)
+    let output = hidden_command(adb)
         .arg("-s")
         .arg(serial)
         .arg("push")
@@ -136,7 +137,7 @@ fn setup_reverse(
     socket_name: &str,
     port: u16,
 ) -> Result<(), AdapterError> {
-    let output = Command::new(adb)
+    let output = hidden_command(adb)
         .arg("-s")
         .arg(serial)
         .arg("reverse")
@@ -157,7 +158,7 @@ fn setup_forward(
     socket_name: &str,
     port: u16,
 ) -> Result<(), AdapterError> {
-    let output = Command::new(adb)
+    let output = hidden_command(adb)
         .arg("-s")
         .arg(serial)
         .arg("forward")
@@ -173,7 +174,7 @@ fn setup_forward(
 }
 
 fn remove_reverse(adb: &Path, serial: &str, socket_name: &str) {
-    let _ = Command::new(adb)
+    let _ = hidden_command(adb)
         .arg("-s")
         .arg(serial)
         .arg("reverse")
@@ -183,7 +184,7 @@ fn remove_reverse(adb: &Path, serial: &str, socket_name: &str) {
 }
 
 fn remove_forward(adb: &Path, serial: &str, port: u16) {
-    let _ = Command::new(adb)
+    let _ = hidden_command(adb)
         .arg("-s")
         .arg(serial)
         .arg("forward")
@@ -206,7 +207,7 @@ fn cleanup_scrcpy(cleanup: &ScrcpyCleanup) {
     } else {
         remove_reverse(&cleanup.adb, &cleanup.serial, &cleanup.socket_name);
     }
-    let _ = Command::new(&cleanup.adb)
+    let _ = hidden_command(&cleanup.adb)
         .arg("-s")
         .arg(&cleanup.serial)
         .args(["shell", "rm", "-f", SCRCPY_REMOTE_SERVER])
@@ -237,7 +238,7 @@ fn start_server(
         format!("max_size={MAX_FRAME_DIMENSION}"),
         format!("max_fps={SERVER_MAX_FPS}"),
     ];
-    Command::new(adb)
+    hidden_command(adb)
         .args(&args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -748,7 +749,7 @@ impl AndroidScreenSource {
 
         let (target_w, target_h) = scaled_dimensions(self.width, self.height);
         let filter = format!("scale={target_w}:{target_h}:flags=fast_bilinear");
-        let mut decoder = match Command::new(&ffmpeg)
+        let mut decoder = match hidden_command(&ffmpeg)
             .args([
                 "-hide_banner",
                 "-loglevel",

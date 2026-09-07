@@ -16,6 +16,7 @@ pub mod ios_wda_setup;
 #[cfg(target_os = "macos")]
 pub mod macos_hid;
 pub mod mirror_adapter;
+pub(crate) mod process;
 pub mod text_encoder;
 pub mod usb_devices;
 

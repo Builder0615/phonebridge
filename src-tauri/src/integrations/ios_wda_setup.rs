@@ -130,11 +130,12 @@ mod macos {
     use std::collections::HashMap;
     use std::fs::{self, OpenOptions};
     use std::path::{Path, PathBuf};
-    use std::process::{Child, Command, ExitStatus, Output, Stdio};
+    use std::process::{Child, ExitStatus, Output, Stdio};
     use std::sync::{Mutex, OnceLock};
     use std::time::{Duration, Instant};
 
     use super::super::ios_usb_control::{probe_wda, resolve_iproxy};
+    use super::super::process::hidden_command;
     use super::super::usb_devices::{list_usb_devices, UsbDevice, UsbDeviceKind};
 
     const WDA_WAIT_TIMEOUT: Duration = Duration::from_secs(90);
@@ -191,7 +192,7 @@ mod macos {
                 "未找到 /usr/bin/xcodebuild，请安装 Xcode 并在首次启动时完成组件安装".into(),
             );
         }
-        let output = Command::new(xcodebuild)
+        let output = hidden_command(xcodebuild)
             .arg("-version")
             .output()
             .map_err(|error| format!("执行 xcodebuild -version 失败：{error}"))?;
@@ -457,7 +458,7 @@ mod macos {
                 "系统没有找到 iproxy，也没有检测到 Homebrew；应用不能在没有用户确认的情况下替系统安装 Homebrew。请安装 Homebrew 后再次点击“一键准备 WDA”".into(),
             );
         };
-        let output = Command::new(&brew)
+        let output = hidden_command(&brew)
             .args(["install", "libusbmuxd"])
             .output()
             .map_err(|error| format!("调用 Homebrew 安装 iproxy 失败：{error}"))?;
@@ -489,7 +490,7 @@ mod macos {
         if !curl.is_file() {
             return Err("未找到系统 curl，无法自动获取 WDA 源码".into());
         }
-        let download = Command::new(curl)
+        let download = hidden_command(curl)
             .args([
                 "--fail",
                 "--location",
@@ -514,7 +515,7 @@ mod macos {
         if !tar.is_file() {
             return Err("未找到系统 tar，无法解压 WDA 源码".into());
         }
-        let extract = Command::new(tar)
+        let extract = hidden_command(tar)
             .args(["-xzf"])
             .arg(&archive)
             .args(["-C"])
@@ -533,7 +534,7 @@ mod macos {
         }
         fs::rename(&package, &target).map_err(|error| format!("保存 WDA 源码失败：{error}"))?;
 
-        let checksum = Command::new("/usr/bin/shasum")
+        let checksum = hidden_command("/usr/bin/shasum")
             .args(["-a", "256"])
             .arg(&archive)
             .output()
@@ -604,7 +605,7 @@ mod macos {
         let derived_data = app_data.join("wda-derived-data");
         fs::create_dir_all(&derived_data)
             .map_err(|error| format!("创建 WDA 构建目录失败：{error}"))?;
-        let mut command = Command::new("/usr/bin/xcodebuild");
+        let mut command = hidden_command("/usr/bin/xcodebuild");
         command
             .current_dir(project.parent().unwrap_or_else(|| Path::new("/")))
             .args(["-project"])
@@ -825,7 +826,7 @@ mod prebuilt {
     use std::fs::{self, OpenOptions};
     use std::io::{BufRead, BufReader, Write};
     use std::path::{Path, PathBuf};
-    use std::process::{Child, Command, Output, Stdio};
+    use std::process::{Child, Output, Stdio};
     use std::sync::{Mutex, OnceLock};
     use std::time::{Duration, Instant};
 
@@ -833,6 +834,7 @@ mod prebuilt {
         allocate_local_port, probe_wda, probe_wda_local, register_wda_endpoint,
         unregister_wda_endpoint,
     };
+    use super::super::process::hidden_command;
     use super::super::usb_devices::{list_usb_devices, UsbDevice, UsbDeviceKind};
 
     const WDA_RUNNER_TIMEOUT: Duration = Duration::from_secs(120);
@@ -1121,7 +1123,7 @@ mod prebuilt {
     }
 
     fn install(ideviceinstaller: &Path, ipa: &Path, raw_udid: &str) -> Result<(), String> {
-        let output = Command::new(ideviceinstaller)
+        let output = hidden_command(ideviceinstaller)
             .args(["-u", raw_udid, "install"])
             .arg(ipa)
             .output()
@@ -1165,7 +1167,7 @@ mod prebuilt {
             .truncate(true)
             .open(&log_path)
             .map_err(|error| format!("创建 go-ios 日志失败：{error}"))?;
-        let mut command = Command::new(runner);
+        let mut command = hidden_command(runner);
         command
             .args(["ui", "run", "wda"])
             .arg(format!("--udid={raw_udid}"))

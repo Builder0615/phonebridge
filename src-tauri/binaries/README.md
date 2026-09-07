@@ -16,10 +16,12 @@
   （GPL-3.0-or-later），Windows 使用固定来源的 Windows 静态构建；不使用浮动下载
   地址，也不把 Intel-only 文件误命名成 arm64。
 - `sidecars.json`：来源 / 版本 / SHA-256 记录（诊断页与审计用）
-- `ios-usb/`：WDA 精准版发布包应包含发布方签名的 `WebDriverAgentRunner.ipa`、
-  `ideviceinstaller[.exe]`、`ios[.exe]`（go-ios）及其 Windows DLL；应用会在用户点击
-  后自动安装、启动和校验 WDA。`iproxy[.exe]`、`idevice_id[.exe]` 仍用于 macOS
-  开发回退和设备诊断。WDA 的签名包不从公开源下载，私钥/p12/profile 不进仓库。
+- `ios-usb/`：Windows iPhone 枚举优先使用 `ios[.exe]`（go-ios）的只读 `list` 命令，
+  因此 BLE 兼容版若要自动列出 USB iPhone 也应内置经过审计的 go-ios 及其 Windows
+  DLL。WDA 精准版另外包含发布方签名的 `WebDriverAgentRunner.ipa`、
+  `ideviceinstaller[.exe]`；应用会在用户点击后自动安装、启动和校验 WDA。
+  `iproxy[.exe]`、`idevice_id[.exe]` 是兼容回退/诊断工具。WDA 的签名包不从公开源下载，
+  私钥/p12/profile 不进仓库。
   `iproxy` 为 GPL-2.0-or-later，`idevice_id` 为 LGPL-2.1-or-later，`ideviceinstaller`
   为 GPL-2.0-or-later，`go-ios` 为 MIT；发布时必须分别提供许可证、源码获取信息和
   SHA-256 记录。

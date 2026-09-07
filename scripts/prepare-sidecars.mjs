@@ -46,6 +46,12 @@ const allowDownload = process.argv.includes("--download")
 const requireWda = process.argv.includes("--require-wda") || process.env.PHONEBRIDGE_REQUIRE_WDA === "1" || process.env.PHONEBRIDGE_REQUIRE_WDA === "true"
 
 const UXPLAY_VERSION = "1.74"
+// go-ios is used for Windows USB discovery even in the BLE-compatible build.
+// Pin the official release archive so a release never picks up an arbitrary
+// executable from PATH.
+const GO_IOS_VERSION = "v1.3.2"
+const GO_IOS_WINDOWS_URL = `https://github.com/danielpaulus/go-ios/releases/download/${GO_IOS_VERSION}/go-ios-win.zip`
+const GO_IOS_WINDOWS_SHA256 = "939c6bcaafed183a92afb9f79cc11b1f935fa6389bfc94d3902e3f52c4dff3fe"
 const UXPLAY_SOURCE_URL = "https://github.com/FDH2/UxPlay"
 const UXPLAY_RELEASE = "master@d19d22adcf1314124ecf4c27cbc5cf0ae7d05f83"
 const UXPLAY_COMMIT = "d19d22adcf1314124ecf4c27cbc5cf0ae7d05f83"
@@ -143,6 +149,31 @@ function unzip(zipPath, outDir) {
     const r = spawnSync("unzip", ["-oq", zipPath, "-d", outDir], { stdio: "ignore" })
     if (r.status !== 0) throw new Error("解压失败（unzip）")
   }
+}
+
+function prepareWindowsGoIosDiscovery() {
+  if (platform !== "win32" || !allowDownload) return
+  const dst = join(iosUsbBins, "ios.exe")
+  if (existsSync(dst)) return
+
+  const archive = join(tmpdir(), `phonebridge-go-ios-${GO_IOS_VERSION}.zip`)
+  const extractDir = join(tmpdir(), `phonebridge-go-ios-${GO_IOS_VERSION}`)
+  download(GO_IOS_WINDOWS_URL, archive)
+  const digest = sha256File(archive)
+  if (digest !== GO_IOS_WINDOWS_SHA256) {
+    throw new Error(
+      `go-ios Windows 构建 SHA-256 不匹配：${digest}；预期 ${GO_IOS_WINDOWS_SHA256}`,
+    )
+  }
+  mkdirSync(extractDir, { recursive: true })
+  unzip(archive, extractDir)
+  const extracted = join(extractDir, "ios.exe")
+  if (!existsSync(extracted)) {
+    throw new Error(`go-ios Windows 压缩包中没有 ios.exe：${GO_IOS_WINDOWS_URL}`)
+  }
+  copyFileSync(extracted, dst)
+  chmodSync(dst, 0o755)
+  console.log(`[ok] Windows go-ios ${GO_IOS_VERSION} 已内置（SHA-256 ${sha256File(dst).slice(0, 16)}…）`)
 }
 
 // ---------------------------------------------------------------------------
@@ -593,7 +624,7 @@ function collectIosUsbTools() {
     "goIos",
     "PHONEBRIDGE_GO_IOS_PATH",
     "MIT",
-    "https://github.com/danielpaulus/go-ios",
+    `https://github.com/danielpaulus/go-ios/releases/tag/${GO_IOS_VERSION}`,
   )
   collectSignedWdaArtifact()
 }
@@ -662,6 +693,7 @@ collectAndroidAdb()
 collectFfmpeg()
 collectScrcpy()
 collectUxplay()
+prepareWindowsGoIosDiscovery()
 collectIosUsbTools()
 validatePackagedArchitectures()
 

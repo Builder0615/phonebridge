@@ -55,7 +55,7 @@
 | 模拟器窗口 | 已连接设备各有一个独立窗口，可同时显示 | Tauri 多窗口；打开/激活某台时显示并聚焦目标，不隐藏其它窗口 |
 | 输入焦点 | 键盘/鼠标只转发到激活设备 | BLE 单活动控制；焦点窗口语义 |
 | 控制面板 | 所有操作集中在一个主窗口 | 设备列表、状态、诊断、设置、粘贴 |
-| USB 自动识别 | 自动列出已连接 iPhone/Android | iPhone: xcrun devicectl/xcdevice/system_profiler；Android: adb；缺依赖返回可理解错误 |
+| USB 自动识别 | 自动列出已连接 iPhone/Android | iPhone: macOS 使用 xcrun devicectl/xcdevice/system_profiler，Windows 使用 go-ios list/idevice_id；Android: adb；缺依赖返回可理解错误 |
 | iPhone 镜像启动 | 面板启动 AirPlay 接收器并提示连接步骤 | iPhone 必须在控制中心“屏幕镜像”中选择快投屏；USB 仅用于识别，画面不走 USB |
 | 文字粘贴 | 显式粘贴只发往当前激活设备 | iOS USB/WDA 模式走 WDA 文本输入，未启用精确模式时回退 BLE HID；Android 使用 scrcpy control text message |
 | iOS 输入通道 | 默认经 BLE HID（HOGP）转发；可选 USB + WDA 绝对坐标 | BLE 兼容版不要求 WDA，仍要求宿主具备 LE Peripheral；WDA 精准版内置发布方签名的 `WebDriverAgentRunner.ipa`、`ideviceinstaller` 与 `go-ios`，用户点击准备后由应用自动安装、启动、校验 WDA，并通过回环端口发送绝对输入。显式开启 USB/WDA 精确模式但 WDA 不可用时必须报错并保持未连接，不能静默回退 BLE（避免用户误把相对鼠标当成绝对坐标）；不绕过 Apple 签名、信任、开发者模式或设备授权，不以越狱或私有框架为前提 |

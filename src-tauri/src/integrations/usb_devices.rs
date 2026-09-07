@@ -3,7 +3,8 @@
 //! 约束：
 //! - 结构化命令枚举，不读取设备文件、剪贴板或认证材料；
 //! - 序列号/标识只做脱敏展示（保留末 4 位）或内部使用；
-//! - 依赖缺失（adb / xcrun idevice）时返回可理解的 DependencyMissing，不隐式成功。
+//! - 依赖缺失（adb / xcrun / go-ios / idevice）时返回可理解的
+//!   DependencyMissing，不隐式成功。
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -12,7 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::Serialize;
 
-use super::AdapterError;
+use super::{process::hidden_command, AdapterError};
 
 /// 设备来源：USB（有线）发现。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -86,12 +87,26 @@ pub fn list_android(adb: &Path) -> Result<Vec<UsbDevice>, AdapterError> {
             adb.display()
         )));
     }
-    let basic = Command::new(adb)
+    let basic = hidden_command(adb)
         .arg("devices")
         .output()
         .map_err(|e| AdapterError::Failed(format!("执行 adb devices 失败: {e}")))?;
+    if !basic.status.success() {
+        let detail = String::from_utf8_lossy(&basic.stderr)
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .take(3)
+            .collect::<Vec<_>>()
+            .join("；");
+        return Err(if detail.is_empty() {
+            AdapterError::Failed(format!("adb devices 返回 {}", basic.status))
+        } else {
+            AdapterError::Failed(format!("adb devices 返回 {}：{detail}", basic.status))
+        });
+    }
     let basic_text = String::from_utf8_lossy(&basic.stdout).to_string();
-    let detail = Command::new(adb)
+    let detail = hidden_command(adb)
         .args(["devices", "-l"])
         .output()
         .ok()
@@ -124,9 +139,9 @@ fn xcrun_command() -> Command {
     // 系统路径中是稳定的，优先使用绝对路径，只有开发者工具被安装到
     // 非标准位置时才回退到 PATH 查找。
     if Path::new("/usr/bin/xcrun").is_file() {
-        Command::new("/usr/bin/xcrun")
+        hidden_command("/usr/bin/xcrun")
     } else {
-        Command::new("xcrun")
+        hidden_command("xcrun")
     }
 }
 
@@ -134,9 +149,9 @@ fn xcrun_command() -> Command {
 fn system_profiler_command() -> Command {
     // 与 xcrun 一样，GUI 进程可能没有继承 `/usr/sbin`；这里不依赖 PATH。
     if Path::new("/usr/sbin/system_profiler").is_file() {
-        Command::new("/usr/sbin/system_profiler")
+        hidden_command("/usr/sbin/system_profiler")
     } else {
-        Command::new("system_profiler")
+        hidden_command("system_profiler")
     }
 }
 
@@ -578,9 +593,98 @@ fn parse_idevice_id_output(output: &str) -> Vec<String> {
         .collect()
 }
 
+/// 解析 `go-ios list` 的默认 JSON 输出。
+///
+/// 当前 go-ios 输出形如 `{"deviceList":["<udid>"]}`。这里同时容忍
+/// `devices`、嵌套 `properties.serialNumber` 和直接对象字段，避免 go-ios
+/// 在不同版本调整 JSON 包装层后让 Windows 设备列表再次消失。
+fn parse_go_ios_list_output(output: &str) -> Vec<String> {
+    fn valid_id(value: &str) -> bool {
+        !value.is_empty()
+            && value.len() <= 128
+            && value
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    }
+
+    fn collect(value: &serde_json::Value, ids: &mut Vec<String>) {
+        match value {
+            serde_json::Value::Array(values) => {
+                for value in values {
+                    collect(value, ids);
+                }
+            }
+            serde_json::Value::String(value) if valid_id(value) => {
+                if !ids.iter().any(|id| id == value) {
+                    ids.push(value.clone());
+                }
+            }
+            serde_json::Value::Object(object) => {
+                for key in ["udid", "UDID", "serialNumber", "serial_number"] {
+                    if let Some(serde_json::Value::String(value)) = object.get(key) {
+                        if valid_id(value) && !ids.iter().any(|id| id == value) {
+                            ids.push(value.clone());
+                        }
+                    }
+                }
+                for key in ["deviceList", "devices", "DeviceList"] {
+                    if let Some(value) = object.get(key) {
+                        collect(value, ids);
+                    }
+                }
+                if let Some(properties) = object.get("properties") {
+                    collect(properties, ids);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(output) else {
+        return Vec::new();
+    };
+    let mut ids = Vec::new();
+    collect(&value, &mut ids);
+    ids
+}
+
+/// Enumerate iOS devices through the cross-platform go-ios CLI.  This is the
+/// Windows WDA package's primary discovery fallback because `idevice_id.exe`
+/// is optional there while `ios.exe` is already required for WDA startup.
+fn list_ios_go_ios(resources: &Path) -> Result<Vec<UsbDevice>, AdapterError> {
+    let tool = resolve_ios_tool(resources, "ios", "PHONEBRIDGE_GO_IOS_PATH").ok_or_else(|| {
+        AdapterError::DependencyMissing("未找到 go-ios（ios.exe），无法枚举 Windows iPhone".into())
+    })?;
+    let output = hidden_command(&tool)
+        .arg("list")
+        .output()
+        .map_err(|e| AdapterError::Failed(format!("执行 go-ios list 失败：{e}")))?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if detail.is_empty() {
+            AdapterError::Failed(format!("go-ios list 失败（{}）", output.status))
+        } else {
+            AdapterError::Failed(format!("go-ios list 失败（{}）：{detail}", output.status))
+        });
+    }
+    Ok(
+        parse_go_ios_list_output(&String::from_utf8_lossy(&output.stdout))
+            .into_iter()
+            .map(|raw_id| UsbDevice {
+                kind: UsbDeviceKind::Iphone,
+                name: "iPhone".into(),
+                id_masked: mask_id(&raw_id),
+                raw_id,
+                state: "connected".into(),
+            })
+            .collect(),
+    )
+}
+
 /// Enumerate iOS devices through the cross-platform libimobiledevice utility.
 /// On Windows this requires the Apple Mobile Device/libusbmuxd transport and
-/// an audited `idevice_id.exe`; neither is silently downloaded or assumed.
+/// an audited `idevice_id.exe`; go-ios is tried separately when this optional
+/// fallback is unavailable.
 fn list_ios_idevice_id(resources: &Path) -> Result<Vec<UsbDevice>, AdapterError> {
     let tool = resolve_ios_tool(resources, "idevice_id", "PHONEBRIDGE_IDEVICE_ID_PATH")
         .ok_or_else(|| {
@@ -588,15 +692,23 @@ fn list_ios_idevice_id(resources: &Path) -> Result<Vec<UsbDevice>, AdapterError>
                 "未找到 idevice_id（可选的跨平台 iOS USB 识别工具）".into(),
             )
         })?;
-    let output = Command::new(&tool)
+    let output = hidden_command(&tool)
         .arg("-l")
         .output()
         .map_err(|e| AdapterError::Failed(format!("执行 idevice_id 失败：{e}")))?;
     if !output.status.success() {
-        return Err(AdapterError::Failed(format!(
-            "idevice_id 失败（{}）",
-            output.status
-        )));
+        let detail = String::from_utf8_lossy(&output.stderr)
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .take(3)
+            .collect::<Vec<_>>()
+            .join("；");
+        return Err(if detail.is_empty() {
+            AdapterError::Failed(format!("idevice_id 失败（{}）", output.status))
+        } else {
+            AdapterError::Failed(format!("idevice_id 失败（{}）：{detail}", output.status))
+        });
     }
     Ok(
         parse_idevice_id_output(&String::from_utf8_lossy(&output.stdout))
@@ -623,6 +735,7 @@ pub fn list_usb_devices(resources: &Path) -> (Vec<UsbDevice>, Vec<String>) {
     let mut devicectl_error = None;
     let mut xcdevice_error = None;
     let mut portable_ios_error = None;
+    let mut go_ios_error = None;
     match list_ios_gs_devicectl() {
         Ok(ios) => devices.extend(ios),
         Err(error) => devicectl_error = Some(error),
@@ -663,6 +776,20 @@ pub fn list_usb_devices(resources: &Path) -> (Vec<UsbDevice>, Vec<String>) {
             Err(error) => portable_ios_error = Some(error),
         }
     }
+    // The Windows package carries go-ios even in BLE-compatible builds. Use its
+    // read-only `list` command as a second portable discovery path so a package
+    // does not require the separately optional idevice_id.exe just to show an
+    // iPhone.
+    if !devices.iter().any(|d| d.kind == UsbDeviceKind::Iphone) {
+        match list_ios_go_ios(resources) {
+            Ok(ios) => {
+                for candidate in ios {
+                    merge_device(&mut devices, candidate);
+                }
+            }
+            Err(error) => go_ios_error = Some(error),
+        }
+    }
     if !devices.iter().any(|d| d.kind == UsbDeviceKind::Iphone) {
         let mut sources = Vec::new();
         if let Some(error) = devicectl_error {
@@ -673,6 +800,9 @@ pub fn list_usb_devices(resources: &Path) -> (Vec<UsbDevice>, Vec<String>) {
         }
         if let Some(error) = portable_ios_error {
             sources.push(format!("idevice_id：{error}"));
+        }
+        if let Some(error) = go_ios_error {
+            sources.push(format!("go-ios：{error}"));
         }
         if !sources.is_empty() {
             notes.push(format!("iPhone（USB）：{}", sources.join("；")));
@@ -900,6 +1030,18 @@ mod tests {
             "ABC-123\n\n  DEF_456  \nidevice_id: no device found\nUDID with spaces\n",
         );
         assert_eq!(ids, vec!["ABC-123", "DEF_456"]);
+    }
+
+    #[test]
+    fn parses_go_ios_device_list_json() {
+        let ids = parse_go_ios_list_output(
+            r#"{"deviceList":["ABC-123", "ABC-123"], "ignored":"not-a-device"}"#,
+        );
+        assert_eq!(ids, vec!["ABC-123"]);
+
+        let ids =
+            parse_go_ios_list_output(r#"{"devices":[{"properties":{"serialNumber":"DEF_456"}}]}"#);
+        assert_eq!(ids, vec!["DEF_456"]);
     }
 
     #[cfg(target_os = "macos")]

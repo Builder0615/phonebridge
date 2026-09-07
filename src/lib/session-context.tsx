@@ -79,6 +79,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [usbErrors, setUsbErrors] = useState<string[]>([])
   const usbRefreshSequence = useRef(0)
+  const usbRefreshInFlight = useRef(false)
   const [prefs, setPrefsState] = useState<SessionPreferences>({
     autoControl: true,
     pasteShortcutEnabled: true,
@@ -115,6 +116,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const refreshUsb = useCallback(async () => {
+    // USB 枚举会启动 adb/idevice_id。Windows 驱动或 adb server 响应较慢时，
+    // 定时器不能再叠加一轮进程，否则会出现命令行窗口连续闪烁并让旧结果
+    // 覆盖新结果。
+    if (usbRefreshInFlight.current) return
+    usbRefreshInFlight.current = true
     const sequence = ++usbRefreshSequence.current
     try {
       const report = await api.listUsbDevices()
@@ -126,6 +132,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     } catch {
       if (sequence !== usbRefreshSequence.current) return
       setUsbErrors(["USB 设备枚举失败"])
+    } finally {
+      usbRefreshInFlight.current = false
     }
   }, [])
 

@@ -97,10 +97,11 @@ pnpm tauri dev
   可同时显示，切换激活只切换输入目标，不会隐藏其它窗口。
 - **多设备并发**：`SessionRegistry` + 每设备 `DeviceSession`；AirPlay 每实例独立端口、
   scrcpy 每设备独立实例；命令/事件携带 sessionId 路由。
-- **USB 自动识别**：iPhone 使用 `xcrun devicectl`，在空结果/兼容版本下回退
-  `xcdevice`、`system_profiler` 和可选的跨平台 `idevice_id`；Windows 不依赖
-  `xcrun`/Xcode。Android 使用 `adb devices`，均为结构化枚举并脱敏展示。依赖缺失
-  返回可理解错误，未完成信任的有线 iPhone 也会保留在列表中提示授权。
+- **USB 自动识别**：iPhone 在 macOS 使用 `xcrun devicectl`，在空结果/兼容版本下回退
+  `xcdevice`、`system_profiler` 和跨平台 `idevice_id`；Windows 使用 `go-ios list`，
+  并回退 `idevice_id`，不依赖 `xcrun`/Xcode。Android 使用 `adb devices`，均为结构化
+  枚举并脱敏展示。依赖缺失或工具返回错误会显示具体来源提示，未完成信任的有线
+  iPhone 也会保留在列表中提示授权。
 - **帧管线**：Android 使用 scrcpy-server 的原始 H264 video socket；macOS iOS 使用
   UxPlay headless 内部 GStreamer 直接解码为 RGBA，Windows iOS 使用 UxPlay RTP
   配合无界面 ffmpeg 解码。两者都推送到 Tauri 画布，不启动第三方原生窗口。

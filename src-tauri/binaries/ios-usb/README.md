@@ -1,12 +1,14 @@
 # iOS USB/WDA runtime
 
-这个目录是可选的 iOS USB/WDA 资源目录。BLE 兼容版可以不包含这些文件；WDA 精准版
-应包含同一版本、同一签名策略下的以下文件：
+这个目录是 iOS USB/WDA 资源目录。BLE 兼容版不需要签名 WDA 和安装器，但 Windows
+要自动列出 USB iPhone 时仍应至少包含经过审计的 `ios.exe`（go-ios）；WDA 精准版
+应另外包含同一版本、同一签名策略下的以下文件：
 
 - `WebDriverAgentRunner.ipa`：已经由发布方签名的 WDA runner；
 - `WebDriverAgentRunner.json`：由收集脚本生成，记录 WDA 的 Bundle ID；
 - `ideviceinstaller` / `ideviceinstaller.exe`：向 USB iPhone 安装 IPA；
-- `ios` / `ios.exe`：`go-ios`，启动 XCTest/WDA 并把设备 8100 转发到本机回环端口；
+- `ios` / `ios.exe`：`go-ios`，列出 USB 设备，并在 WDA 版中启动 XCTest/WDA、把设备
+  8100 转发到本机回环端口；
 - `iproxy` / `iproxy.exe`、`idevice_id` / `idevice_id.exe`：macOS 开发回退路径和
   设备诊断使用；Windows 还要把所需 DLL（包括 go-ios 构建要求的 `wintun.dll`）放在
   对应可执行文件旁边。

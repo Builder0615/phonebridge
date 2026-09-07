@@ -7,9 +7,8 @@
 //! - 序列号只在 UI/诊断中脱敏展示（保留末 4 位）。
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
-use super::AdapterError;
+use super::{process::hidden_command, AdapterError};
 
 // ---------------------------------------------------------------------------
 // 工具定位：应用内置 sidecar 优先，再查环境变量与常见安装位置
@@ -89,7 +88,7 @@ fn search_shell(name: &str) -> Option<PathBuf> {
     #[cfg(not(target_os = "windows"))]
     {
         // 固定命令，不拼接用户输入；GUI 进程里 shell 会加载用户配置拿到真实 PATH。
-        let out = Command::new("sh")
+        let out = hidden_command("sh")
             .args(["-lc", &format!("command -v {name}")])
             .output()
             .ok()?;
@@ -103,7 +102,7 @@ fn search_shell(name: &str) -> Option<PathBuf> {
     }
     #[cfg(target_os = "windows")]
     {
-        let out = Command::new("where").arg(name).output().ok()?;
+        let out = hidden_command("where").arg(name).output().ok()?;
         if out.status.success() {
             let p = String::from_utf8_lossy(&out.stdout)
                 .lines()
@@ -250,7 +249,7 @@ pub fn parse_adb_devices(output: &str) -> Vec<AdbDevice> {
 
 /// 执行 `adb devices`（仅列表，不含任何设备内容）。
 pub fn list_devices(adb: &Path) -> Result<Vec<AdbDevice>, AdapterError> {
-    let out = Command::new(adb)
+    let out = hidden_command(adb)
         .arg("devices")
         .output()
         .map_err(|e| AdapterError::Failed(format!("执行 adb devices 失败: {e}")))?;
@@ -260,7 +259,7 @@ pub fn list_devices(adb: &Path) -> Result<Vec<AdbDevice>, AdapterError> {
 
 /// 返回第一台已授权设备的完整序列号（仅内部使用，不写入日志）。
 pub fn first_authorized_serial(adb: &Path) -> Result<Option<String>, AdapterError> {
-    let out = Command::new(adb)
+    let out = hidden_command(adb)
         .arg("devices")
         .output()
         .map_err(|e| AdapterError::Failed(format!("执行 adb devices 失败: {e}")))?;
@@ -277,7 +276,7 @@ pub fn first_authorized_serial(adb: &Path) -> Result<Option<String>, AdapterErro
 /// scrcpy 实例绑定到用户实际点击的那台设备。若发生尾部碰撞，明确报错而不
 /// 静默把画面串到另一台设备。
 pub fn serial_for_session_id(adb: &Path, session_id: &str) -> Result<Option<String>, AdapterError> {
-    let out = Command::new(adb)
+    let out = hidden_command(adb)
         .arg("devices")
         .output()
         .map_err(|e| AdapterError::Failed(format!("执行 adb devices 失败: {e}")))?;
@@ -318,7 +317,7 @@ pub fn parse_wm_size(output: &str) -> Option<(u32, u32)> {
 
 /// 查询设备屏幕尺寸（结构化命令，不读设备内容）。
 pub fn query_wm_size(adb: &Path, serial: Option<&str>) -> Option<(u32, u32)> {
-    let mut cmd = Command::new(adb);
+    let mut cmd = hidden_command(adb);
     if let Some(s) = serial {
         cmd.arg("-s").arg(s);
     }
@@ -485,7 +484,7 @@ impl AdbInputController {
 
     fn input(&self, args: &[&str]) -> Result<(), AdapterError> {
         let full = adb_input_args(self.serial.as_deref(), args);
-        let out = Command::new(&self.adb)
+        let out = hidden_command(&self.adb)
             .args(&full)
             .output()
             .map_err(|e| AdapterError::Failed(format!("执行 adb input 失败: {e}")))?;
