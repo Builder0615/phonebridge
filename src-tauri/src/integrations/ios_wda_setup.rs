@@ -1403,7 +1403,7 @@ mod prebuilt {
 #[cfg(target_os = "windows")]
 mod windows {
     use super::*;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
 
     use super::super::ios_usb_control::{probe_wda, resolve_iproxy};
     use super::super::usb_devices::{list_usb_devices, UsbDevice, UsbDeviceKind};

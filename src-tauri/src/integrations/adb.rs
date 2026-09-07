@@ -56,8 +56,9 @@ fn common_search_dirs() -> Vec<PathBuf> {
             dirs.push(PathBuf::from(local).join("Android/Sdk/platform-tools"));
         }
         if let Some(profile) = std::env::var_os("USERPROFILE") {
-            dirs.push(PathBuf::from(profile).join("AppData/Local/Android/Sdk/platform-tools"));
-            dirs.push(PathBuf::from(profile).join("Android/Sdk/platform-tools"));
+            let profile = PathBuf::from(profile);
+            dirs.push(profile.join("AppData/Local/Android/Sdk/platform-tools"));
+            dirs.push(profile.join("Android/Sdk/platform-tools"));
         }
         dirs.push(PathBuf::from("C:\\Android\\platform-tools"));
     }
