@@ -26,11 +26,11 @@ function updateJson(relativePath) {
 function updateText(relativePath, pattern, label) {
   const path = resolve(root, relativePath)
   const source = readFileSync(path, "utf8")
-  const updated = source.replace(pattern, (_match, prefix, suffix) => `${prefix}${version}${suffix}`)
-  if (updated === source) {
+  if (!pattern.test(source)) {
     throw new Error(`未能在 ${relativePath} 中定位 ${label} 版本字段`)
   }
-  writeFileSync(path, updated)
+  const updated = source.replace(pattern, (_match, prefix, suffix) => `${prefix}${version}${suffix}`)
+  if (updated !== source) writeFileSync(path, updated)
 }
 
 updateJson("package.json")
